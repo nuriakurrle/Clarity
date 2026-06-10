@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: clarity_ollama
+    ports:
+      - "11434:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    volumes:
+      - ollama_data:/root/.ollama
+    command: serve
+    networks:
+      - clarity-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  agent_sentiment:
+    build:
+      context: ./backend/agent_sentiment
+    container_name: clarity_sentiment
+    ports:
+      - "8001:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/shared:/app/shared:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
+  agent_pattern:
+    build:
+      context: ./backend/agent_pattern
+    container_name: clarity_pattern
+    ports:
+      - "8002:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/shared:/app/shared:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
+  agent_prompt:
+    build:
+      context: ./backend/agent_prompt
+    container_name: clarity_prompt
+    ports:
+      - "8003:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/shared:/app/shared:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
+  agent_digest:
+    build:
+      context: ./backend/agent_digest
+    container_name: clarity_digest
+    ports:
+      - "8004:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./backend/shared:/app/shared:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
+networks:
+  clarity-network:
+    driver: bridge
+
+volumes:
+  ollama_data:
