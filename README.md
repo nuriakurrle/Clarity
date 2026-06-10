@@ -1,4 +1,3 @@
-# Clarity
 The App Project - Mobile Anwendungen SS26
 
 # Clarity: Privacy-First AI Journaling App
