@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Clarity",
+    "slug": "clarity",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#F7F6F3"
+    },
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F6F3"
+      }
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-asset"
+    ]
+  }
+}
