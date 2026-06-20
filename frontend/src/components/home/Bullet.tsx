@@ -1,9 +1,9 @@
 /** Aufzählungszeile mit Akzent-Punkt (z. B. Wochenrückblick-Highlights). */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors } from '../../theme/colors';
 
-type Props = { text: string };
+type Props = { text: React.ReactNode };
 
 export function Bullet({ text }: Props) {
   return (

@@ -1,79 +1,66 @@
 /**
- * TEMPORÄRER Vorschau-Harness – NICHT die finale Navigation!
+ * Root-Navigation: 4 Bottom-Tabs (Start, Verlauf, Einblicke, Kalender)
+ * + zentraler FAB für einen neuen Eintrag.
  *
- * Dient nur dazu, die beiden statischen Screens (Insight & Kalender) lokal
- * anzusehen, solange das richtige Routing noch nicht steht.
- * Sobald wir das Routing (z. B. expo-router / Bottom-Tabs) gemeinsam
- * einrichten, wird diese Datei durch die echte Navigation ersetzt – die
- * Screens unter `src/screens/` bleiben unverändert und werden dort
- * einfach importiert.
+ * Bewusst einfach (useState statt einer Navigationsbibliothek) – passend
+ * zu den aktuell rein statischen Screens. Reicht das Routing-Bedürfnis
+ * später darüber hinaus, kann dies durch z. B. React Navigation ersetzt
+ * werden, ohne dass sich an den Screens unter `src/screens/` etwas ändert.
+ *
+ * Einblicke & Kalender sind aktuell bewusst leere Screens (siehe dort) –
+ * nur die Tabs/das Routing dorthin existieren schon.
  */
 import React, { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { BottomNav, TabKey } from './src/components';
+import HomeScreen from './src/screens/HomeScreen';
+import SearchScreen from './src/screens/SearchScreen';
+import EntryScreen from './src/screens/EntryScreen';
 import InsightScreen from './src/screens/InsightScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import { colors } from './src/theme/colors';
 
-type Tab = 'insight' | 'calendar';
-
 export default function App() {
-  const [tab, setTab] = useState<Tab>('insight');
+  const [tab, setTab] = useState<TabKey>('home');
+  const [showEntry, setShowEntry] = useState(false);
+
+  const openEntry = () => setShowEntry(true);
+  const closeEntry = () => setShowEntry(false);
+
+  const changeTab = (key: TabKey) => {
+    setShowEntry(false);
+    setTab(key);
+  };
+
+  let screen: React.ReactNode;
+  if (showEntry) {
+    screen = <EntryScreen onDone={closeEntry} />;
+  } else if (tab === 'home') {
+    screen = <HomeScreen />;
+  } else if (tab === 'search') {
+    screen = <SearchScreen />;
+  } else if (tab === 'insight') {
+    screen = <InsightScreen />;
+  } else {
+    screen = <CalendarScreen />;
+  }
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="dark" />
+    <SafeAreaProvider>
+      <View style={styles.root}>
+        <StatusBar style="dark" />
 
-      <View style={styles.screen}>
-        {tab === 'insight' ? <InsightScreen /> : <CalendarScreen />}
-      </View>
+        <View style={styles.screen}>{screen}</View>
 
-      {/* Provisorische Umschaltung – ersetzt durch echte Tab-Navigation */}
-      <View style={styles.switcher}>
-        <TouchableOpacity
-          style={[styles.switchItem, tab === 'insight' && styles.switchActive]}
-          onPress={() => setTab('insight')}
-        >
-          <Text
-            style={[
-              styles.switchText,
-              tab === 'insight' && styles.switchTextActive,
-            ]}
-          >
-            Einblicke
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.switchItem, tab === 'calendar' && styles.switchActive]}
-          onPress={() => setTab('calendar')}
-        >
-          <Text
-            style={[
-              styles.switchText,
-              tab === 'calendar' && styles.switchTextActive,
-            ]}
-          >
-            Kalender
-          </Text>
-        </TouchableOpacity>
+        <BottomNav active={showEntry ? 'entry' : tab} onChange={changeTab} onPressAdd={openEntry} />
       </View>
-    </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   screen: { flex: 1 },
-  switcher: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingBottom: 24,
-    paddingTop: 8,
-  },
-  switchItem: { flex: 1, alignItems: 'center', paddingVertical: 8 },
-  switchActive: {},
-  switchText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
-  switchTextActive: { color: colors.primary, fontWeight: '700' },
 });
