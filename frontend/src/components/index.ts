@@ -1,19 +1,11 @@
 /**
- * Zentrale Sammelstelle der UI-Komponenten (Design-System der App).
- * Import z. B.:  import { Card, ScreenHeader } from '../components';
+ * Zentrale Sammelstelle der über mehrere Screens geteilten UI-Komponenten.
+ * Screen-eigene Bausteine liegen in den Unterordnern `home/`, `search/`,
+ * `entry/` und werden von dort direkt importiert, z. B.:
+ *   import { SearchBar } from '../components/search';
  */
 export { ScreenHeader } from './ScreenHeader';
 export { Card } from './Card';
-export { SegmentedControl } from './SegmentedControl';
-export { StatBox } from './StatBox';
-export { MoodBarChart } from './MoodBarChart';
-export type { MoodBar } from './MoodBarChart';
-export { MoodDot } from './MoodDot';
-export { Tag } from './Tag';
-export { Bullet } from './Bullet';
-export { NumberedItem } from './NumberedItem';
-export { MonthNav } from './MonthNav';
-export { CalendarGrid } from './CalendarGrid';
-export { MoodLegend } from './MoodLegend';
-export { MoodPill } from './MoodPill';
-export { EntryCard } from './EntryCard';
+export { SectionLabel } from './SectionLabel';
+export { BottomNav } from './BottomNav';
+export type { TabKey, ActiveKey } from './BottomNav';

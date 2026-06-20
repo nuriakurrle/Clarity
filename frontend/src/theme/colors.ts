@@ -21,6 +21,14 @@ export const colors = {
   border: '#E7E5DF',
   shadow: '#000000',
 
+  // Warme Akzente (Home / Verlauf / Eintrag schreiben – Journal-Look)
+  warm: '#C9784B',
+  warmSoft: '#F3CDB0',
+  warmSofter: '#FBEAE0',
+  warmSage: '#EEF1E5',
+  warmHighlight: '#E3D3B5',
+  navBg: '#FBE4D2',
+
   // Stimmungs-Palette (von gut nach schlecht)
   moodGreat: '#5B8A72',
   moodGood: '#9CC5A1',
