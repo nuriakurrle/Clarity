@@ -2,7 +2,8 @@
 import sqlite3
 from pathlib import Path
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional, List, Dict, Any
 
 DB_PATH = Path("/data/clarity.db")
 
@@ -27,14 +28,33 @@ def init_db():
         )
     """)
 
-    # Sentiment Analysis Results
+    # Enhanced Sentiment Analysis Results with Valence, Intensity, Tone
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sentiment_analysis (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             entry_id INTEGER,
             sentiment TEXT,
+            valence REAL,
+            intensity INTEGER,
+            tone TEXT,
+            primary_emotion TEXT,
+            secondary_emotions TEXT,
             confidence INTEGER,
-            emotions TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(entry_id) REFERENCES entries(id)
+        )
+    """)
+
+    # Longitudinal Mood Profile - tracks mood over time
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS mood_profile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER,
+            date DATE,
+            daily_valence REAL,
+            daily_intensity INTEGER,
+            dominant_emotions TEXT,
+            mood_shift TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(entry_id) REFERENCES entries(id)
         )
@@ -89,18 +109,223 @@ def save_entry(content: str) -> int:
     conn.close()
     return entry_id
 
-def save_sentiment(entry_id: int, sentiment: str, confidence: int, emotions: list) -> None:
-    """Save sentiment analysis result"""
+def save_sentiment(
+    entry_id: int, 
+    sentiment: str, 
+    valence: float,
+    intensity: int,
+    tone: str,
+    primary_emotion: str,
+    secondary_emotions: List[str],
+    confidence: int
+) -> None:
+    """Save comprehensive sentiment analysis result with valence and intensity"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO sentiment_analysis
-           (entry_id, sentiment, confidence, emotions)
-           VALUES (?, ?, ?, ?)""",
-        (entry_id, sentiment, confidence, json.dumps(emotions))
+           (entry_id, sentiment, valence, intensity, tone, primary_emotion, secondary_emotions, confidence)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            entry_id, 
+            sentiment, 
+            valence, 
+            intensity, 
+            tone, 
+            primary_emotion, 
+            json.dumps(secondary_emotions), 
+            confidence
+        )
     )
     conn.commit()
     conn.close()
+
+def save_mood_profile(entry_id: int, sentiment_data: Dict[str, Any]) -> None:
+    """Save mood profile entry for longitudinal tracking"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    today = datetime.now().date()
+    mood_shift = "stable"  # Default, can be computed from trend analysis
+    
+    cursor.execute(
+        """INSERT INTO mood_profile
+           (entry_id, date, daily_valence, daily_intensity, dominant_emotions, mood_shift)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            entry_id,
+            today,
+            sentiment_data.get("valence", 0),
+            sentiment_data.get("intensity", 50),
+            json.dumps([
+                sentiment_data.get("primary_emotion", ""),
+                *sentiment_data.get("secondary_emotions", [])
+            ]),
+            mood_shift
+        )
+    )
+    conn.commit()
+    conn.close()
+
+def get_mood_profile(days: int = 7) -> Dict[str, Any]:
+    """
+    Get longitudinal mood profile for the last N days.
+    Shows emotional trends and shifts over time.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    start_date = (datetime.now() - timedelta(days=days)).date()
+    
+    cursor.execute("""
+        SELECT 
+            date,
+            daily_valence,
+            daily_intensity,
+            dominant_emotions,
+            mood_shift,
+            COUNT(*) as entry_count
+        FROM mood_profile
+        WHERE date >= ?
+        GROUP BY date
+        ORDER BY date
+    """, (start_date,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    daily_data = []
+    for row in rows:
+        daily_data.append({
+            "date": row[0],
+            "average_valence": row[1],
+            "average_intensity": row[2],
+            "dominant_emotions": json.loads(row[3]),
+            "mood_shift": row[4],
+            "entry_count": row[5]
+        })
+    
+    return {
+        "period_days": days,
+        "daily_breakdown": daily_data,
+        "start_date": start_date.isoformat(),
+        "end_date": datetime.now().date().isoformat()
+    }
+
+def calculate_mood_trend(days: int = 7) -> Dict[str, Any]:
+    """
+    Calculate mood trends over the specified period.
+    Detects shifts and patterns in emotional state.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    start_date = (datetime.now() - timedelta(days=days)).date()
+    
+    cursor.execute("""
+        SELECT 
+            daily_valence,
+            daily_intensity
+        FROM mood_profile
+        WHERE date >= ?
+        ORDER BY date
+    """, (start_date,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    if not rows:
+        return {
+            "trend": "insufficient_data",
+            "valence_change": 0,
+            "intensity_change": 0,
+            "pattern": "no_entries"
+        }
+    
+    valences = [row[0] for row in rows]
+    intensities = [row[1] for row in rows]
+    
+    valence_trend = "increasing" if valences[-1] > valences[0] else "decreasing" if valences[-1] < valences[0] else "stable"
+    intensity_trend = "increasing" if intensities[-1] > intensities[0] else "decreasing" if intensities[-1] < intensities[0] else "stable"
+    
+    avg_valence = sum(valences) / len(valences)
+    avg_intensity = sum(intensities) / len(intensities)
+    
+    return {
+        "trend": "positive" if avg_valence > 0.3 else "negative" if avg_valence < -0.3 else "neutral",
+        "valence_change": valences[-1] - valences[0],
+        "valence_trend": valence_trend,
+        "intensity_change": intensities[-1] - intensities[0],
+        "intensity_trend": intensity_trend,
+        "average_valence": avg_valence,
+        "average_intensity": avg_intensity,
+        "data_points": len(rows)
+    }
+
+def get_emotional_summary(period: str = "week") -> Dict[str, Any]:
+    """
+    Generate emotional summary highlighting patterns, shifts, and insights.
+    """
+    if period == "day":
+        days = 1
+    elif period == "week":
+        days = 7
+    elif period == "month":
+        days = 30
+    else:
+        days = 7
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    start_date = (datetime.now() - timedelta(days=days)).date()
+    
+    cursor.execute("""
+        SELECT 
+            primary_emotion,
+            COUNT(*) as frequency,
+            AVG(valence) as avg_valence,
+            AVG(intensity) as avg_intensity
+        FROM sentiment_analysis
+        WHERE created_at >= datetime('now', ? || ' days')
+        GROUP BY primary_emotion
+        ORDER BY frequency DESC
+    """, (f'-{days}',))
+    
+    emotion_stats = cursor.fetchall()
+    
+    cursor.execute("""
+        SELECT 
+            sentiment,
+            COUNT(*) as count
+        FROM sentiment_analysis
+        WHERE created_at >= datetime('now', ? || ' days')
+        GROUP BY sentiment
+    """, (f'-{days}',))
+    
+    sentiment_dist = cursor.fetchall()
+    conn.close()
+    
+    top_emotions = [
+        {
+            "emotion": row[0],
+            "frequency": row[1],
+            "avg_valence": row[2],
+            "avg_intensity": row[3]
+        }
+        for row in emotion_stats[:5]
+    ]
+    
+    sentiment_distribution = {
+        row[0]: row[1] for row in sentiment_dist
+    }
+    
+    return {
+        "period": period,
+        "top_emotions": top_emotions,
+        "sentiment_distribution": sentiment_distribution,
+        "summary_generated": datetime.now().isoformat()
+    }
 
 def save_pattern(top_themes: list, mood_trend: str, triggers: dict) -> None:
     """Save pattern detection result"""
