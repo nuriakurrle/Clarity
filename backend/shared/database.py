@@ -143,67 +143,65 @@ def save_digest(week_start: str, summary: str, highlights: list,
     conn.commit()
     conn.close()
 
-def _rows_to_dicts(rows):
+# --- Read helpers (used by the reflection/digest agent) ---------------------
+
+def get_entries_since(since: str) -> list:
+    """Return journal entries created on/after `since` (oldest first)."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        """SELECT id, content, created_at FROM entries
+           WHERE created_at >= ? ORDER BY created_at""",
+        (since,)
+    ).fetchall()
+    conn.close()
     return [dict(row) for row in rows]
 
-def get_recent_entries(limit: int = 7) -> list:
+def get_sentiments_since(since: str) -> list:
+    """Return sentiment analyses on/after `since`, with emotions decoded."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT id, content, created_at
-           FROM entries
-           ORDER BY created_at DESC, id DESC
-           LIMIT ?""",
-        (limit,)
-    )
-    rows = _rows_to_dicts(cursor.fetchall())
+    rows = conn.execute(
+        """SELECT sentiment, confidence, emotions, created_at FROM sentiment_analysis
+           WHERE created_at >= ? ORDER BY created_at""",
+        (since,)
+    ).fetchall()
     conn.close()
-    return rows
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["emotions"] = json.loads(item["emotions"]) if item["emotions"] else []
+        result.append(item)
+    return result
 
-def get_recent_sentiments(limit: int = 7) -> list:
+def get_patterns_since(since: str) -> list:
+    """Return pattern detections on/after `since`, with JSON fields decoded."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT sa.id, sa.entry_id, e.content, sa.sentiment, sa.confidence,
-                  sa.emotions, sa.created_at
-           FROM sentiment_analysis sa
-           LEFT JOIN entries e ON e.id = sa.entry_id
-           ORDER BY sa.created_at DESC, sa.id DESC
-           LIMIT ?""",
-        (limit,)
-    )
-    rows = _rows_to_dicts(cursor.fetchall())
+    rows = conn.execute(
+        """SELECT top_themes, mood_trend, triggers, created_at FROM pattern_detection
+           WHERE created_at >= ? ORDER BY created_at""",
+        (since,)
+    ).fetchall()
     conn.close()
-    return rows
+    result = []
+    for row in rows:
+        item = dict(row)
+        item["top_themes"] = json.loads(item["top_themes"]) if item["top_themes"] else []
+        item["triggers"] = json.loads(item["triggers"]) if item["triggers"] else {}
+        result.append(item)
+    return result
 
-def get_recent_patterns(limit: int = 3) -> list:
+def get_latest_digest() -> dict | None:
+    """Return the most recently created weekly digest, with JSON fields decoded."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT id, top_themes, mood_trend, triggers, created_at
-           FROM pattern_detection
-           ORDER BY created_at DESC, id DESC
-           LIMIT ?""",
-        (limit,)
-    )
-    rows = _rows_to_dicts(cursor.fetchall())
+    row = conn.execute(
+        "SELECT * FROM weekly_digest ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
     conn.close()
-    return rows
-
-def get_recent_prompts(limit: int = 7) -> list:
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        """SELECT gp.id, gp.entry_id, e.content, gp.prompts, gp.created_at
-           FROM generated_prompts gp
-           LEFT JOIN entries e ON e.id = gp.entry_id
-           ORDER BY gp.created_at DESC, gp.id DESC
-           LIMIT ?""",
-        (limit,)
-    )
-    rows = _rows_to_dicts(cursor.fetchall())
-    conn.close()
-    return rows
+    if row is None:
+        return None
+    digest = dict(row)
+    for field in ("highlights", "challenges", "growth"):
+        digest[field] = json.loads(digest[field]) if digest[field] else []
+    return digest
 
 if __name__ == "__main__":
     init_db()
