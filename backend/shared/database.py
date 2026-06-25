@@ -382,10 +382,12 @@ def get_entries_since(since: str) -> list:
     return [dict(row) for row in rows]
 
 def get_sentiments_since(since: str) -> list:
-    """Return sentiment analyses on/after `since`, with emotions decoded."""
+    """Return sentiment analyses on/after `since`, with secondary_emotions decoded."""
     conn = get_db_connection()
     rows = conn.execute(
-        """SELECT sentiment, confidence, emotions, created_at FROM sentiment_analysis
+        """SELECT sentiment, valence, intensity, tone, primary_emotion,
+                  secondary_emotions, confidence, created_at
+           FROM sentiment_analysis
            WHERE created_at >= ? ORDER BY created_at""",
         (since,)
     ).fetchall()
@@ -393,7 +395,9 @@ def get_sentiments_since(since: str) -> list:
     result = []
     for row in rows:
         item = dict(row)
-        item["emotions"] = json.loads(item["emotions"]) if item["emotions"] else []
+        item["secondary_emotions"] = (
+            json.loads(item["secondary_emotions"]) if item["secondary_emotions"] else []
+        )
         result.append(item)
     return result
 
