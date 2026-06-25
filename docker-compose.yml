@@ -17,6 +17,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # Zieht einmalig die benötigten Modelle in die Ollama-Instanz und beendet
+  # sich dann. Die Agenten warten via `service_completed_successfully`, bis das
+  # durch ist – so antwortet das Backend ohne manuelles `ollama pull`.
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: clarity_ollama_init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["ollama pull llama3.2:1b && ollama pull llama3.2:3b"]
+    networks:
+      - clarity-network
+    restart: "no"
+
   agent_sentiment:
     build:
       context: ./backend/agent_sentiment
@@ -26,6 +43,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:1b
@@ -46,6 +65,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
@@ -66,6 +87,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
@@ -86,6 +109,8 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
