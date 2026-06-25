@@ -22,7 +22,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                   allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL = "phi3"
+MODEL = os.getenv("MODEL", "llama3.2:1b")
 
 # Initialize DB on startup
 @app.on_event("startup")
@@ -75,10 +75,10 @@ Intensity ranges from 0 (minimal) to 100 (maximum emotional energy).
 """
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": MODEL, "prompt": prompt, "stream": False, "temperature": 0.3}
+                json={"model": MODEL, "prompt": prompt, "stream": False, "format": "json", "temperature": 0.3}
             )
             result = response.json()
             response_text = result.get("response", "")
@@ -114,7 +114,6 @@ Intensity ranges from 0 (minimal) to 100 (maximum emotional energy).
             else:
                 logger.error(f"Failed to extract JSON from: {response_text[:200]}")
                 raise Exception("Could not parse sentiment analysis response as JSON")
-                
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         raise

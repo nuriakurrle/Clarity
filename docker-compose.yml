@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   ollama:
     image: ollama/ollama:latest
     container_name: clarity_ollama
     ports:
-      - "11434:11434"
+      - "11435:11434"
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
     volumes:
@@ -14,7 +12,7 @@ services:
     networks:
       - clarity-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -30,6 +28,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - MODEL=llama3.2:1b
       - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/shared:/app/shared:ro
@@ -49,6 +48,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/shared:/app/shared:ro
@@ -68,6 +68,7 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/shared:/app/shared:ro
@@ -87,6 +88,10 @@ services:
         condition: service_healthy
     environment:
       - OLLAMA_HOST=http://ollama:11434
+      - MODEL=llama3.2:3b
+      - SENTIMENT_AGENT_URL=http://agent_sentiment:8000
+      - PROMPT_AGENT_URL=http://agent_prompt:8000
+      - PATTERN_AGENT_URL=http://agent_pattern:8000
       - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/shared:/app/shared:ro
