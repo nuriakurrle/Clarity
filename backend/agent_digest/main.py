@@ -94,21 +94,39 @@ def extract_json(text: str) -> dict:
 
 # --- Kontext aus den Wochendaten --------------------------------------------
 def summarize_mood(sentiments: list) -> str:
-    """Verdichtet die Stimmungsanalysen der Woche zu einem kurzen Text."""
+    """Verdichtet die Stimmungsanalysen der Woche zu einem kurzen Text.
+
+    Nutzt das erweiterte Sentiment-Schema (valence, intensity, primary_emotion,
+    secondary_emotions).
+    """
     if not sentiments:
         return "Keine Stimmungsdaten vorhanden."
     counts: dict = {}
     emotions: dict = {}
+    valences: list = []
+    intensities: list = []
     for s in sentiments:
         counts[s["sentiment"]] = counts.get(s["sentiment"], 0) + 1
-        for emotion in s.get("emotions", []):
+        primary = s.get("primary_emotion")
+        if primary:
+            emotions[primary] = emotions.get(primary, 0) + 1
+        for emotion in s.get("secondary_emotions", []):
             emotions[emotion] = emotions.get(emotion, 0) + 1
+        if s.get("valence") is not None:
+            valences.append(s["valence"])
+        if s.get("intensity") is not None:
+            intensities.append(s["intensity"])
+
     distribution = ", ".join(f"{k}: {v}" for k, v in counts.items())
     top_emotions = sorted(emotions, key=emotions.get, reverse=True)[:5]
-    return (
-        f"Stimmungsverteilung: {distribution}. "
-        f"Häufige Emotionen: {', '.join(top_emotions) if top_emotions else '–'}."
-    )
+
+    parts = [f"Stimmungsverteilung: {distribution}."]
+    if valences:
+        parts.append(f"Durchschnittliche Valenz: {sum(valences) / len(valences):.2f}.")
+    if intensities:
+        parts.append(f"Durchschnittliche Intensität: {round(sum(intensities) / len(intensities))}.")
+    parts.append(f"Häufige Emotionen: {', '.join(top_emotions) if top_emotions else '–'}.")
+    return " ".join(parts)
 
 
 def summarize_patterns(patterns: list) -> str:
