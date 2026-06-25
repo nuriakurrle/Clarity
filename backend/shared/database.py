@@ -143,6 +143,68 @@ def save_digest(week_start: str, summary: str, highlights: list,
     conn.commit()
     conn.close()
 
+def _rows_to_dicts(rows):
+    return [dict(row) for row in rows]
+
+def get_recent_entries(limit: int = 7) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id, content, created_at
+           FROM entries
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?""",
+        (limit,)
+    )
+    rows = _rows_to_dicts(cursor.fetchall())
+    conn.close()
+    return rows
+
+def get_recent_sentiments(limit: int = 7) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT sa.id, sa.entry_id, e.content, sa.sentiment, sa.confidence,
+                  sa.emotions, sa.created_at
+           FROM sentiment_analysis sa
+           LEFT JOIN entries e ON e.id = sa.entry_id
+           ORDER BY sa.created_at DESC, sa.id DESC
+           LIMIT ?""",
+        (limit,)
+    )
+    rows = _rows_to_dicts(cursor.fetchall())
+    conn.close()
+    return rows
+
+def get_recent_patterns(limit: int = 3) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT id, top_themes, mood_trend, triggers, created_at
+           FROM pattern_detection
+           ORDER BY created_at DESC, id DESC
+           LIMIT ?""",
+        (limit,)
+    )
+    rows = _rows_to_dicts(cursor.fetchall())
+    conn.close()
+    return rows
+
+def get_recent_prompts(limit: int = 7) -> list:
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """SELECT gp.id, gp.entry_id, e.content, gp.prompts, gp.created_at
+           FROM generated_prompts gp
+           LEFT JOIN entries e ON e.id = gp.entry_id
+           ORDER BY gp.created_at DESC, gp.id DESC
+           LIMIT ?""",
+        (limit,)
+    )
+    rows = _rows_to_dicts(cursor.fetchall())
+    conn.close()
+    return rows
+
 if __name__ == "__main__":
     init_db()
     print("✅ Database initialized at /data/clarity.db")

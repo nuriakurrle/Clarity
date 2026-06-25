@@ -17,7 +17,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                   allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL = "phi3"
+MODEL = os.getenv("MODEL", "llama3.2:1b")
 
 # Initialize DB on startup
 @app.on_event("startup")
@@ -44,10 +44,10 @@ Respond ONLY with JSON:
 {{"sentiment": "positive", "confidence": 85, "emotions": ["freude"]}}"""
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": MODEL, "prompt": prompt, "stream": False, "temperature": 0.3}
+                json={"model": MODEL, "prompt": prompt, "stream": False, "format": "json", "temperature": 0.3}
             )
             result = response.json()
             json_match = re.search(r'\{[^{}]*\}', result.get("response", ""), re.DOTALL)
@@ -66,6 +66,7 @@ Respond ONLY with JSON:
                 )
                 logger.info(f"💾 Saved to DB (entry_id={entry_id})")
 
+                sentiment_data["entry_id"] = entry_id
                 return sentiment_data
             raise Exception("No JSON")
     except Exception as e:
