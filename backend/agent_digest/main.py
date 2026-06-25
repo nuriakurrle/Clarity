@@ -37,9 +37,10 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
 
 # --- Lokale Konfiguration ---------------------------------------------------
 # OLLAMA_HOST: im Docker-Netz "http://ollama:11434", lokal "http://localhost:11434".
-# MODEL: jedes lokal gezogene Ollama-Modell (z. B. `ollama pull phi3`).
+# MODEL: jedes lokal gezogene Ollama-Modell. Gleiche Env-Variable wie die
+# anderen Agenten, damit docker-compose (MODEL=...) auch hier greift.
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL = os.getenv("DIGEST_MODEL", "phi3")
+MODEL = os.getenv("MODEL", "llama3.2:1b")
 
 
 @app.on_event("startup")
@@ -71,6 +72,7 @@ async def call_ollama(prompt: str, temperature: float = 0.4) -> str:
                     "model": MODEL,
                     "prompt": prompt,
                     "stream": False,
+                    "format": "json",
                     "options": {"temperature": temperature},
                 },
             )
