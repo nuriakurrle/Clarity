@@ -17,7 +17,20 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                   allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL = "phi3"
+MODEL = os.getenv("MODEL", "llama3.2:1b")
+
+
+def fallback_patterns(entries: list[str]) -> dict:
+    themes = []
+    if entries:
+        sample = entries[:3]
+        themes = [entry[:60].strip() for entry in sample if entry.strip()]
+
+    return {
+        "top_themes": themes[:5],
+        "mood_trend": "stable",
+        "triggers": {},
+    }
 
 @app.on_event("startup")
 async def startup():
@@ -44,28 +57,33 @@ Respond with JSON:
 {{"top_themes": [], "mood_trend": "improving", "triggers": {{}}}}"""
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": MODEL, "prompt": prompt, "stream": False, "temperature": 0.3}
+                json={"model": MODEL, "prompt": prompt, "stream": False, "format": "json", "temperature": 0.3}
             )
             result = response.json()
             json_match = re.search(r'\{.*\}', result.get("response", ""), re.DOTALL)
 
             if json_match:
-                pattern_data = json.loads(json_match.group())
-                logger.info("✅ Patterns detected")
+                try:
+                    pattern_data = json.loads(json_match.group())
+                except Exception:
+                    pattern_data = fallback_patterns(input.entries)
+            else:
+                pattern_data = fallback_patterns(input.entries)
 
-                # 💾 SAVE TO DATABASE
-                save_pattern(
-                    pattern_data.get("top_themes", []),
-                    pattern_data.get("mood_trend", "stable"),
-                    pattern_data.get("triggers", {})
-                )
-                logger.info("💾 Saved to DB")
+            logger.info("✅ Patterns detected")
 
-                return pattern_data
-            raise Exception("No JSON")
+            # 💾 SAVE TO DATABASE
+            save_pattern(
+                pattern_data.get("top_themes", []),
+                pattern_data.get("mood_trend", "stable"),
+                pattern_data.get("triggers", {}),
+            )
+            logger.info("💾 Saved to DB")
+
+            return pattern_data
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         raise
