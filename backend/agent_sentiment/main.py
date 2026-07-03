@@ -54,31 +54,34 @@ async def analyze_sentiment(input: TextInput):
     """
     logger.info(f"📊 Analyzing: {input.text[:50]}...")
 
-    prompt = f"""Analyze the emotional content of this journal entry deeply:
+    prompt = f"""You are an expert emotional analyst. Analyze the emotional content of this journal entry deeply.
 
 Entry: "{input.text}"
 
-Respond ONLY with valid JSON (no markdown, no explanations):
+Respond ONLY with valid JSON (no markdown, no explanations) in exactly this structure:
 {{
-    "sentiment": "positive/neutral/negative",
-    "valence": -0.8,
-    "intensity": 75,
-    "tone": "description of emotional tone",
-    "primary_emotion": "emotion name",
-    "secondary_emotions": ["emotion1", "emotion2"],
-    "confidence": 85,
-    "reasoning": "brief explanation"
+    "sentiment": "<positive, neutral or negative>",
+    "valence": <number between -1.0 and 1.0>,
+    "intensity": <number between 0 and 100>,
+    "tone": "<short description of the emotional tone>",
+    "primary_emotion": "<single strongest emotion>",
+    "secondary_emotions": ["<emotion>", "<emotion>"],
+    "confidence": <number between 0 and 100>,
+    "reasoning": "<brief explanation>"
 }}
 
-Valence ranges from -1 (very negative) to +1 (very positive).
-Intensity ranges from 0 (minimal) to 100 (maximum emotional energy).
+Rules:
+- valence measures positivity: -1.0 = very negative, 0.0 = neutral, +1.0 = very positive.
+- valence MUST be consistent with sentiment: positive sentiment requires valence > 0, negative sentiment requires valence < 0.
+- intensity measures emotional strength: 0 = minimal, 100 = maximum emotional energy.
+- Derive every value from the actual entry text. Never output placeholder or example values.
 """
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
             response = await client.post(
                 f"{OLLAMA_HOST}/api/generate",
-                json={"model": MODEL, "prompt": prompt, "stream": False, "format": "json", "temperature": 0.3}
+                json={"model": MODEL, "prompt": prompt, "stream": False, "format": "json", "options": {"temperature": 0.3}}
             )
             result = response.json()
             response_text = result.get("response", "")
