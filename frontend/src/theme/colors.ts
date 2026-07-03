@@ -54,3 +54,12 @@ export const moodLabel: Record<MoodLevel, string> = {
   low: 'Gedrückt',
   bad: 'Schwer',
 };
+
+/** Valenz des Sentiment-Agenten (-1..+1) auf die fünfstufige Skala abbilden. */
+export function valenceToMoodLevel(valence: number): MoodLevel {
+  if (valence >= 0.6) return 'great';
+  if (valence >= 0.2) return 'good';
+  if (valence >= -0.2) return 'neutral';
+  if (valence >= -0.6) return 'low';
+  return 'bad';
+}

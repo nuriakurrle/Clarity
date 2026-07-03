@@ -425,6 +425,24 @@ def get_patterns_since(since: str) -> list:
         result.append(item)
     return result
 
+def get_entries_with_sentiment() -> list:
+    """Return all journal entries (newest first) with their latest sentiment.
+
+    Used by the sentiment agent's /entries endpoint (history & search in the app).
+    """
+    conn = get_db_connection()
+    rows = conn.execute(
+        """SELECT e.id, e.content, e.created_at,
+                  s.sentiment, s.valence, s.primary_emotion
+           FROM entries e
+           LEFT JOIN sentiment_analysis s ON s.id = (
+               SELECT MAX(id) FROM sentiment_analysis WHERE entry_id = e.id
+           )
+           ORDER BY e.created_at DESC, e.id DESC"""
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
 def get_latest_digest() -> dict | None:
     """Return the most recently created weekly digest, with JSON fields decoded."""
     conn = get_db_connection()
