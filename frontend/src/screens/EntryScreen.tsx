@@ -22,10 +22,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { EditorToolbar, MoodEmojiPicker } from '../components/entry';
+import { EditorToolbar, MoodPicker } from '../components/entry';
 import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
 import { analyzeEntry } from '../services/api';
-import { colors } from '../theme/colors';
+import { colors, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
 const now = new Date();
@@ -42,7 +42,7 @@ type Props = { onDone?: () => void };
 export default function EntryScreen({ onDone }: Props) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [mood, setMood] = useState<string | null>(null);
+  const [mood, setMood] = useState<MoodLevel | null>(null);
   const [saving, setSaving] = useState(false);
   const [format, setFormat] = useState<EditorFormat>(DEFAULT_FORMAT);
 
@@ -55,7 +55,7 @@ export default function EntryScreen({ onDone }: Props) {
 
     setSaving(true);
     try {
-      await analyzeEntry(text);
+      await analyzeEntry(text, mood ?? undefined);
       onDone?.();
     } catch (e) {
       Alert.alert(
@@ -108,7 +108,7 @@ export default function EntryScreen({ onDone }: Props) {
         </ScrollView>
 
         <View style={styles.footer}>
-          <MoodEmojiPicker value={mood} onChange={setMood} />
+          <MoodPicker value={mood} onChange={setMood} />
           <TouchableOpacity
             style={[styles.doneBtn, saving && styles.doneBtnDisabled]}
             onPress={handleDone}

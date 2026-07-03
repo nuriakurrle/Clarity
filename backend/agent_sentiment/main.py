@@ -34,6 +34,17 @@ async def startup():
 class TextInput(BaseModel):
     text: str
     entry_id: Optional[int] = None
+    # Optionale Selbsteinschätzung aus der App (Stimmungs-Icons im Editor)
+    self_reported_mood: Optional[str] = None
+
+# Selbsteinschätzung (5-stufige Skala der App) → Kontext für das LLM
+MOOD_DESCRIPTIONS = {
+    "great": "very positive (valence around +0.8)",
+    "good": "positive (valence around +0.4)",
+    "neutral": "neutral (valence around 0)",
+    "low": "somewhat negative (valence around -0.4)",
+    "bad": "very negative (valence around -0.8)",
+}
 
 class MoodProfileRequest(BaseModel):
     days: int = 7  # Last N days
@@ -55,9 +66,19 @@ async def analyze_sentiment(input: TextInput):
     """
     logger.info(f"📊 Analyzing: {input.text[:50]}...")
 
+    mood_hint = ""
+    mood_description = MOOD_DESCRIPTIONS.get(input.self_reported_mood or "")
+    if mood_description:
+        mood_hint = (
+            f"\nWhile writing, the user self-reported their mood as: {mood_description}. "
+            "Treat this as helpful additional context, but base your analysis primarily "
+            "on the text itself. If text and self-report disagree, mention it in the reasoning.\n"
+        )
+
     prompt = f"""You are an expert emotional analyst. Analyze the emotional content of this journal entry deeply.
 
 Entry: "{input.text}"
+{mood_hint}
 
 Respond ONLY with valid JSON (no markdown, no explanations) in exactly this structure:
 {{
