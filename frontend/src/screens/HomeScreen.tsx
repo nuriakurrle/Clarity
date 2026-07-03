@@ -1,21 +1,41 @@
 /**
- * HomeScreen – statisches Gerüst, bewusst ohne Inhalt.
+ * HomeScreen – wöchentlicher Rückblick aus echten Agent-Daten.
  *
- * Zeigt nur die Struktur des wöchentlichen Rückblicks (Abschnitts-
- * überschriften), noch ohne Daten – die App hat ja noch keine
- * Tagebucheinträge. Sobald die lokale Datenbank befüllt ist und die
- * Sentiment-/Pattern-/Digest-Agenten laufen, füllen sich diese
- * Abschnitte mit echtem Inhalt (Bausteine dafür liegen bereits unter
- * `../components/home`, sind hier aber noch nicht verdrahtet).
+ * Füllt die drei Abschnitte mit Inhalten aus dem Backend:
+ *   - Tonverlauf                ← Digest-Agent (Zusammenfassung der Woche)
+ *   - Wiederkehrende Themen     ← Digest-Agent (Highlights + Challenges)
+ *   - Eine Frage zum Weitertragen ← lokaler Impuls,
+ *     mit der Digest-Affirmation als sanftem Abschluss.
+ *
+ * Bausteine aus `../components/home` (Bullet, QuoteBlock) und der
+ * Themen-Chip aus `../components/insight` (Tag).
  */
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { SectionLabel } from '../components';
+import { Bullet, QuoteBlock } from '../components/home';
+import { Tag } from '../components/insight';
+import { Digest, fetchLatestDigest } from '../services/api';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
+const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
+
 export default function HomeScreen() {
+  const [digest, setDigest] = useState<Digest | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  useEffect(() => {
+    fetchLatestDigest()
+      .then(setDigest)
+      .catch(() => setOffline(true));
+  }, []);
+
+  const themes = digest
+    ? [...new Set([...digest.challenges, ...digest.highlights])]
+    : [];
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -26,11 +46,44 @@ export default function HomeScreen() {
 
         <View style={styles.body}>
           <SectionLabel text="Tonverlauf" />
+          {digest ? (
+            <View style={styles.sectionContent}>
+              <QuoteBlock text={digest.summary} tint="peach" />
+              {digest.highlights.map((h, i) => (
+                <View key={i} style={styles.bulletSpacing}>
+                  <Bullet text={h} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.hint}>
+              {offline
+                ? 'Backend nicht erreichbar – läuft „docker compose up"?'
+                : 'Noch kein Wochenrückblick – schreib ein paar Einträge!'}
+            </Text>
+          )}
+
           <View style={styles.spacer32}>
             <SectionLabel text="Wiederkehrende Themen" />
+            {themes.length > 0 ? (
+              <View style={styles.pillWrap}>
+                {themes.map((theme) => (
+                  <Tag key={theme} label={theme} />
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
+            )}
           </View>
+
           <View style={styles.spacer32}>
             <SectionLabel text="Eine Frage zum Weitertragen" />
+            <View style={styles.sectionContent}>
+              <QuoteBlock text={FALLBACK_QUESTION} tint="sage" />
+              {digest?.affirmation ? (
+                <Text style={styles.affirmation}>{digest.affirmation}</Text>
+              ) : null}
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -40,10 +93,21 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  scroll: { flexGrow: 1 },
+  scroll: { flexGrow: 1, paddingBottom: 24 },
   banner: { backgroundColor: colors.warmSoft, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
   bannerTitle: { fontFamily: serif, fontSize: 32, fontWeight: '700', color: colors.text },
   bannerSubtitle: { fontSize: 15, color: colors.text, opacity: 0.6, marginTop: 4 },
   body: { paddingHorizontal: 20, paddingTop: 24 },
   spacer32: { marginTop: 32 },
+  sectionContent: { marginTop: 12, gap: 12 },
+  bulletSpacing: { marginBottom: -8 },
+  pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
+  affirmation: {
+    fontFamily: serif,
+    fontStyle: 'italic',
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.textMuted,
+  },
 });
