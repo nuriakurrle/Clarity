@@ -1,15 +1,17 @@
 /**
- * EntryScreen – statischer Screen (noch keine Backend-Anbindung).
+ * EntryScreen – Eingabemaske für einen neuen Tagebucheintrag.
  *
- * Leere Eingabemaske für einen neuen Tagebucheintrag: Titel, Fließtext
- * und Stimmungsauswahl. Datum/Uhrzeit kommen direkt von der Geräteuhr,
- * der restliche Inhalt ist absichtlich leer (frischer Eintrag).
- * Speichern/Persistenz folgt später über die lokale Datenbank.
+ * Titel, Fließtext und Stimmungsauswahl. Datum/Uhrzeit kommen direkt von
+ * der Geräteuhr. „Fertig" schickt den Eintrag an den Sentiment-Agenten
+ * (`POST /analyze`), der ihn in SQLite speichert und direkt emotional
+ * auswertet – davon leben später Einblicke & Wochenrückblick.
  *
  * Die UI besteht aus den Entry-eigenen Bausteinen aus `../components/entry`.
  */
 import React, { useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -21,6 +23,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EditorToolbar, MoodEmojiPicker } from '../components/entry';
+import { analyzeEntry } from '../services/api';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -39,6 +42,32 @@ export default function EntryScreen({ onDone }: Props) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [mood, setMood] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const handleDone = async () => {
+    const text = [title.trim(), body.trim()].filter(Boolean).join('\n\n');
+    if (!text) {
+      onDone?.();
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await analyzeEntry(text);
+      onDone?.();
+    } catch (e) {
+      Alert.alert(
+        'Speichern fehlgeschlagen',
+        'Der Eintrag konnte nicht ans Backend geschickt werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?',
+        [
+          { text: 'Nochmal versuchen' },
+          { text: 'Verwerfen', style: 'destructive', onPress: () => onDone?.() },
+        ],
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -78,8 +107,17 @@ export default function EntryScreen({ onDone }: Props) {
 
         <View style={styles.footer}>
           <MoodEmojiPicker value={mood} onChange={setMood} />
-          <TouchableOpacity style={styles.doneBtn} onPress={onDone} activeOpacity={0.8}>
-            <Text style={styles.doneText}>Fertig</Text>
+          <TouchableOpacity
+            style={[styles.doneBtn, saving && styles.doneBtnDisabled]}
+            onPress={handleDone}
+            activeOpacity={0.8}
+            disabled={saving}
+          >
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.doneText}>Fertig</Text>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -124,6 +162,9 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 20,
     paddingVertical: 10,
+    minWidth: 76,
+    alignItems: 'center',
   },
+  doneBtnDisabled: { opacity: 0.6 },
   doneText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 });

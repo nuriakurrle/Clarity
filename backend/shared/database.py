@@ -178,11 +178,11 @@ def get_mood_profile(days: int = 7) -> Dict[str, Any]:
     start_date = (datetime.now() - timedelta(days=days)).date()
     
     cursor.execute("""
-        SELECT 
+        SELECT
             date,
-            daily_valence,
-            daily_intensity,
-            dominant_emotions,
+            ROUND(AVG(daily_valence), 2) as average_valence,
+            ROUND(AVG(daily_intensity), 1) as average_intensity,
+            GROUP_CONCAT(dominant_emotions, '|') as dominant_emotions,
             mood_shift,
             COUNT(*) as entry_count
         FROM mood_profile
@@ -190,17 +190,24 @@ def get_mood_profile(days: int = 7) -> Dict[str, Any]:
         GROUP BY date
         ORDER BY date
     """, (start_date,))
-    
+
     rows = cursor.fetchall()
     conn.close()
-    
+
     daily_data = []
     for row in rows:
+        # dominant_emotions ist pro Eintrag eine JSON-Liste; über den Tag
+        # zusammenführen und Duplikate entfernen (Reihenfolge bleibt erhalten)
+        emotions = []
+        for chunk in (row[3] or "").split("|"):
+            for emotion in json.loads(chunk) if chunk else []:
+                if emotion and emotion not in emotions:
+                    emotions.append(emotion)
         daily_data.append({
             "date": row[0],
             "average_valence": row[1],
             "average_intensity": row[2],
-            "dominant_emotions": json.loads(row[3]),
+            "dominant_emotions": emotions,
             "mood_shift": row[4],
             "entry_count": row[5]
         })
