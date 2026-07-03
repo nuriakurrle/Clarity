@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EditorToolbar, MoodEmojiPicker } from '../components/entry';
+import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
 import { analyzeEntry } from '../services/api';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -43,6 +44,7 @@ export default function EntryScreen({ onDone }: Props) {
   const [body, setBody] = useState('');
   const [mood, setMood] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [format, setFormat] = useState<EditorFormat>(DEFAULT_FORMAT);
 
   const handleDone = async () => {
     const text = [title.trim(), body.trim()].filter(Boolean).join('\n\n');
@@ -92,14 +94,14 @@ export default function EntryScreen({ onDone }: Props) {
             style={styles.title}
           />
 
-          <EditorToolbar />
+          <EditorToolbar value={format} onChange={setFormat} />
 
           <TextInput
             value={body}
             onChangeText={setBody}
             placeholder="Schreib, was dir gerade durch den Kopf geht…"
             placeholderTextColor={colors.textFaint}
-            style={styles.body}
+            style={[styles.body, formatToStyle(format)]}
             multiline
             textAlignVertical="top"
           />
@@ -139,13 +141,11 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     padding: 0,
   },
+  // Größe/Farbe/Font kommen aus dem Toolbar-Format (formatToStyle)
   body: {
-    fontFamily: serif,
-    fontSize: 16,
-    lineHeight: 26,
-    color: colors.text,
     minHeight: 280,
     padding: 0,
+    marginTop: 12,
   },
   footer: {
     flexDirection: 'row',
