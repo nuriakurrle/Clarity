@@ -120,12 +120,14 @@ export type Digest = {
 // --- Aufrufe ------------------------------------------------------------------
 
 /** Speichert einen Tagebucheintrag und analysiert ihn (Sentiment-Agent).
+ *  `selfReportedMood` ist die optionale Stimmungsauswahl aus dem Editor
+ *  (bad…great) und fließt als Zusatz-Kontext in die Analyse ein.
  *  Die LLM-Analyse kann auf dem lokalen Rechner eine Weile dauern. */
-export function analyzeEntry(text: string): Promise<AnalyzeResult> {
+export function analyzeEntry(text: string, selfReportedMood?: string): Promise<AnalyzeResult> {
   return request<AnalyzeResult>(
     'sentiment',
     '/analyze',
-    { method: 'POST', body: JSON.stringify({ text }) },
+    { method: 'POST', body: JSON.stringify({ text, self_reported_mood: selfReportedMood ?? null }) },
     300000,
   );
 }
