@@ -10,8 +10,9 @@ from datetime import datetime, timedelta
 # Add shared to path
 sys.path.insert(0, '/app/shared')
 from database import (
-    init_db, save_sentiment, save_entry, get_mood_profile, 
-    save_mood_profile, calculate_mood_trend, get_emotional_summary
+    init_db, save_sentiment, save_entry, get_mood_profile,
+    save_mood_profile, calculate_mood_trend, get_emotional_summary,
+    get_entries_with_sentiment
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -120,6 +121,14 @@ Rules:
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         raise
+
+@app.get("/entries")
+async def list_entries():
+    """
+    All journal entries (newest first) with their latest sentiment.
+    Used by the app for the history / search screen.
+    """
+    return {"entries": get_entries_with_sentiment()}
 
 @app.get("/mood-profile")
 async def get_mood_profile_endpoint(days: int = 7):
