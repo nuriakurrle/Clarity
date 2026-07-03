@@ -99,6 +99,15 @@ export type MoodProfile = {
   };
 };
 
+export type EntryRecord = {
+  id: number;
+  content: string;
+  created_at: string; // "YYYY-MM-DD HH:MM:SS"
+  sentiment: 'positive' | 'neutral' | 'negative' | null;
+  valence: number | null;
+  primary_emotion: string | null;
+};
+
 export type Digest = {
   week_start?: string;
   summary: string;
@@ -124,6 +133,11 @@ export function analyzeEntry(text: string): Promise<AnalyzeResult> {
 /** Longitudinales Stimmungsprofil der letzten `days` Tage (Sentiment-Agent). */
 export function fetchMoodProfile(days = 7): Promise<MoodProfile> {
   return request<MoodProfile>('sentiment', `/mood-profile?days=${days}`);
+}
+
+/** Alle Tagebucheinträge inkl. Stimmung, neueste zuerst (Sentiment-Agent). */
+export function fetchEntries(): Promise<{ entries: EntryRecord[] }> {
+  return request<{ entries: EntryRecord[] }>('sentiment', '/entries');
 }
 
 /** Letzter gespeicherter Wochenrückblick (Digest-Agent). */
