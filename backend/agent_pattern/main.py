@@ -188,10 +188,16 @@ def _normalize(data: dict) -> dict:
 
 @app.get("/patterns/latest")
 async def patterns_latest():
-    """Zuletzt gespeicherte Muster (fuer Frontend & Digest-Agent)."""
+    """Zuletzt gespeicherte Muster (fuer Frontend & Digest-Agent).
+
+    Gibt dieselbe Form zurueck wie POST /detect-patterns. In der DB heisst die
+    Spalte historisch `top_themes`; nach aussen liefern wir `recurring_themes`,
+    damit Frontend und beide Endpoints ein einheitliches Schema haben.
+    """
     pattern = get_latest_pattern()
     if pattern is None:
         return {"status": "no_data"}
+    pattern["recurring_themes"] = pattern.pop("top_themes", [])
     return pattern
 
 

@@ -124,13 +124,15 @@ function formatMoodChange(profile: MoodProfile): string {
 /** Themen & Personen aus dem Pattern-Agent, dedupliziert (für die Tag-Wolke). */
 function patternTags(pattern: PatternResult | null): string[] {
   if (!pattern || pattern.status === 'no_data') return [];
-  return [...new Set([...pattern.recurring_themes, ...pattern.recurring_people])];
+  const themes = pattern.recurring_themes ?? [];
+  const people = pattern.recurring_people ?? [];
+  return [...new Set([...themes, ...people])];
 }
 
 /** Trigger als lesbare "Auslöser → Reaktion"-Zeilen. */
 function patternTriggers(pattern: PatternResult | null): string[] {
   if (!pattern || pattern.status === 'no_data') return [];
-  return Object.entries(pattern.triggers).map(([trigger, reaction]) =>
+  return Object.entries(pattern.triggers ?? {}).map(([trigger, reaction]) =>
     reaction ? `${trigger} → ${reaction}` : trigger,
   );
 }
