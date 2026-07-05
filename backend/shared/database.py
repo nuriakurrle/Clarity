@@ -71,6 +71,16 @@ def init_db():
         )
     """)
 
+    # Migration: Der Pattern-Agent liefert inzwischen reichere Muster
+    # (Personen, Situationen, Sprachverschiebungen, Zusammenfassung). Spalten
+    # werden nur ergänzt, wenn sie noch fehlen -> bricht bestehende DBs nicht.
+    existing_pattern_cols = {
+        row[1] for row in cursor.execute("PRAGMA table_info(pattern_detection)").fetchall()
+    }
+    for column in ("recurring_people", "situations", "language_shifts", "summary"):
+        if column not in existing_pattern_cols:
+            cursor.execute(f"ALTER TABLE pattern_detection ADD COLUMN {column} TEXT")
+
     # Generated Prompts
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS generated_prompts (
@@ -334,18 +344,58 @@ def get_emotional_summary(period: str = "week") -> Dict[str, Any]:
         "summary_generated": datetime.now().isoformat()
     }
 
-def save_pattern(top_themes: list, mood_trend: str, triggers: dict) -> None:
-    """Save pattern detection result"""
+def save_pattern(
+    top_themes: list,
+    mood_trend: str,
+    triggers: dict,
+    recurring_people: Optional[list] = None,
+    situations: Optional[list] = None,
+    language_shifts: Optional[list] = None,
+    summary: str = "",
+) -> None:
+    """Save pattern detection result.
+
+    Die zusätzlichen Felder sind optional, damit bestehende Aufrufer weiter
+    funktionieren.
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO pattern_detection
-           (top_themes, mood_trend, triggers)
-           VALUES (?, ?, ?)""",
-        (json.dumps(top_themes), mood_trend, json.dumps(triggers))
+           (top_themes, mood_trend, triggers,
+            recurring_people, situations, language_shifts, summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            json.dumps(top_themes),
+            mood_trend,
+            json.dumps(triggers),
+            json.dumps(recurring_people or []),
+            json.dumps(situations or []),
+            json.dumps(language_shifts or []),
+            summary,
+        ),
     )
     conn.commit()
     conn.close()
+
+
+def get_latest_pattern() -> Optional[Dict[str, Any]]:
+    """Return the most recent pattern detection, with JSON fields decoded.
+
+    Used by the pattern agent's GET /patterns/latest endpoint (app + digest).
+    """
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT * FROM pattern_detection ORDER BY created_at DESC, id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    pattern = dict(row)
+    for field in ("top_themes", "recurring_people", "situations", "language_shifts"):
+        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else []
+    pattern["triggers"] = json.loads(pattern["triggers"]) if pattern.get("triggers") else {}
+    return pattern
 
 def save_prompts(entry_id: int, prompts: list) -> None:
     """Save generated prompts"""
