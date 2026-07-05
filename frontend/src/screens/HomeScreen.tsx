@@ -26,6 +26,15 @@ import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
 const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Nur Muster dieser Woche auf Home zeigen (created_at ist UTC "YYYY-MM-DD HH:MM:SS"). */
+function isWithinLastWeek(createdAt?: string): boolean {
+  if (!createdAt) return true; // ohne Zeitstempel nicht ausschliessen
+  const ts = Date.parse(`${createdAt.replace(' ', 'T')}Z`);
+  if (Number.isNaN(ts)) return true;
+  return Date.now() - ts < WEEK_MS;
+}
 
 export default function HomeScreen() {
   const [digest, setDigest] = useState<Digest | null>(null);
@@ -41,8 +50,12 @@ export default function HomeScreen() {
       .catch(() => {});
   }, []);
 
-  // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren"
-  const activePattern = pattern && pattern.status !== 'no_data' ? pattern : null;
+  // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren".
+  // Nur anzeigen, wenn die Analyse aus der letzten Woche stammt.
+  const activePattern =
+    pattern && pattern.status !== 'no_data' && isWithinLastWeek(pattern.created_at)
+      ? pattern
+      : null;
   const observations = activePattern?.observations ?? [];
   const tags = activePattern
     ? [...new Set([
@@ -81,25 +94,19 @@ export default function HomeScreen() {
           )}
 
           <View style={styles.spacer32}>
+            <SectionLabel
+              text="Themen, die wiederkehren"
+              emphasis={
+                hasPattern && themeCount > 0
+                  ? `${themeCount} ${themeCount === 1 ? 'Thema' : 'Themen'}`
+                  : undefined
+              }
+            />
             {hasPattern ? (
-              <Card>
-                <View style={styles.themeHeader}>
-                  <Text style={styles.themeTitle}>Themen, die wiederkehren</Text>
-                  {themeCount > 0 ? (
-                    <Text style={styles.themeCount}>
-                      {themeCount} {themeCount === 1 ? 'Thema' : 'Themen'}
-                    </Text>
-                  ) : null}
-                </View>
-
-                {observations.length > 0 ? (
-                  <View style={styles.themeBody}>
-                    {observations.map((o, i) => (
-                      <Bullet key={i} text={o} />
-                    ))}
-                  </View>
-                ) : null}
-
+              <Card style={styles.themeCard}>
+                {observations.map((o, i) => (
+                  <Bullet key={i} text={o} />
+                ))}
                 {tags.length > 0 ? (
                   <View style={styles.pillWrap}>
                     {tags.map((tag) => (
@@ -109,10 +116,7 @@ export default function HomeScreen() {
                 ) : null}
               </Card>
             ) : (
-              <>
-                <SectionLabel text="Wiederkehrende Themen" />
-                <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
-              </>
+              <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
             )}
           </View>
 
@@ -142,14 +146,7 @@ const styles = StyleSheet.create({
   sectionContent: { marginTop: 12, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  themeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  themeTitle: { fontSize: 17, fontWeight: '700', color: colors.text, flex: 1 },
-  themeCount: { fontSize: 13, color: colors.textMuted, marginLeft: 8 },
-  themeBody: { marginTop: 14 },
+  themeCard: { marginTop: 12 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
   affirmation: {
     fontFamily: serif,
