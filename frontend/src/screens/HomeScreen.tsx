@@ -13,10 +13,15 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SectionLabel } from '../components';
+import { Card, SectionLabel } from '../components';
 import { Bullet, QuoteBlock } from '../components/home';
 import { Tag } from '../components/insight';
-import { Digest, fetchLatestDigest } from '../services/api';
+import {
+  Digest,
+  PatternResult,
+  fetchLatestDigest,
+  fetchLatestPatterns,
+} from '../services/api';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -24,17 +29,29 @@ const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
 
 export default function HomeScreen() {
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
     fetchLatestDigest()
       .then(setDigest)
       .catch(() => setOffline(true));
+    fetchLatestPatterns()
+      .then(setPattern)
+      .catch(() => {});
   }, []);
 
-  const themes = digest
-    ? [...new Set([...digest.challenges, ...digest.highlights])]
+  // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren"
+  const activePattern = pattern && pattern.status !== 'no_data' ? pattern : null;
+  const observations = activePattern?.observations ?? [];
+  const tags = activePattern
+    ? [...new Set([
+        ...(activePattern.recurring_themes ?? []),
+        ...(activePattern.recurring_people ?? []),
+      ])]
     : [];
+  const themeCount = activePattern?.recurring_themes?.length ?? 0;
+  const hasPattern = observations.length > 0 || tags.length > 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -64,15 +81,38 @@ export default function HomeScreen() {
           )}
 
           <View style={styles.spacer32}>
-            <SectionLabel text="Wiederkehrende Themen" />
-            {themes.length > 0 ? (
-              <View style={styles.pillWrap}>
-                {themes.map((theme) => (
-                  <Tag key={theme} label={theme} />
-                ))}
-              </View>
+            {hasPattern ? (
+              <Card>
+                <View style={styles.themeHeader}>
+                  <Text style={styles.themeTitle}>Themen, die wiederkehren</Text>
+                  {themeCount > 0 ? (
+                    <Text style={styles.themeCount}>
+                      {themeCount} {themeCount === 1 ? 'Thema' : 'Themen'}
+                    </Text>
+                  ) : null}
+                </View>
+
+                {observations.length > 0 ? (
+                  <View style={styles.themeBody}>
+                    {observations.map((o, i) => (
+                      <Bullet key={i} text={o} />
+                    ))}
+                  </View>
+                ) : null}
+
+                {tags.length > 0 ? (
+                  <View style={styles.pillWrap}>
+                    {tags.map((tag) => (
+                      <Tag key={tag} label={tag} />
+                    ))}
+                  </View>
+                ) : null}
+              </Card>
             ) : (
-              <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
+              <>
+                <SectionLabel text="Wiederkehrende Themen" />
+                <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
+              </>
             )}
           </View>
 
@@ -102,6 +142,14 @@ const styles = StyleSheet.create({
   sectionContent: { marginTop: 12, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  themeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  themeTitle: { fontSize: 17, fontWeight: '700', color: colors.text, flex: 1 },
+  themeCount: { fontSize: 13, color: colors.textMuted, marginLeft: 8 },
+  themeBody: { marginTop: 14 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
   affirmation: {
     fontFamily: serif,

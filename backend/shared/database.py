@@ -77,7 +77,7 @@ def init_db():
     existing_pattern_cols = {
         row[1] for row in cursor.execute("PRAGMA table_info(pattern_detection)").fetchall()
     }
-    for column in ("recurring_people", "situations", "language_shifts", "summary"):
+    for column in ("recurring_people", "situations", "language_shifts", "observations", "summary"):
         if column not in existing_pattern_cols:
             cursor.execute(f"ALTER TABLE pattern_detection ADD COLUMN {column} TEXT")
 
@@ -351,6 +351,7 @@ def save_pattern(
     recurring_people: Optional[list] = None,
     situations: Optional[list] = None,
     language_shifts: Optional[list] = None,
+    observations: Optional[list] = None,
     summary: str = "",
 ) -> None:
     """Save pattern detection result.
@@ -363,8 +364,8 @@ def save_pattern(
     cursor.execute(
         """INSERT INTO pattern_detection
            (top_themes, mood_trend, triggers,
-            recurring_people, situations, language_shifts, summary)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            recurring_people, situations, language_shifts, observations, summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             json.dumps(top_themes),
             mood_trend,
@@ -372,6 +373,7 @@ def save_pattern(
             json.dumps(recurring_people or []),
             json.dumps(situations or []),
             json.dumps(language_shifts or []),
+            json.dumps(observations or []),
             summary,
         ),
     )
@@ -392,7 +394,7 @@ def get_latest_pattern() -> Optional[Dict[str, Any]]:
     if row is None:
         return None
     pattern = dict(row)
-    for field in ("top_themes", "recurring_people", "situations", "language_shifts"):
+    for field in ("top_themes", "recurring_people", "situations", "language_shifts", "observations"):
         pattern[field] = json.loads(pattern[field]) if pattern.get(field) else []
     pattern["triggers"] = json.loads(pattern["triggers"]) if pattern.get("triggers") else {}
     return pattern

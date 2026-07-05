@@ -125,6 +125,7 @@ export type PatternResult = {
   situations: string[];
   triggers: Record<string, string>;
   language_shifts: string[];
+  observations: string[];
   mood_trend: 'improving' | 'stable' | 'declining';
   summary: string;
   created_at?: string;

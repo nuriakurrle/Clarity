@@ -148,6 +148,7 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
                 recurring_people=pattern_data["recurring_people"],
                 situations=pattern_data["situations"],
                 language_shifts=pattern_data["language_shifts"],
+                observations=pattern_data["observations"],
                 summary=pattern_data["summary"],
             )
             logger.info("Saved to DB")
@@ -181,6 +182,7 @@ def _normalize(data: dict) -> dict:
         "situations": as_list(data.get("situations")),
         "triggers": triggers,
         "language_shifts": as_list(data.get("language_shifts")),
+        "observations": as_list(data.get("observations")),
         "mood_trend": trend,
         "summary": str(data.get("summary", "")).strip(),
     }
