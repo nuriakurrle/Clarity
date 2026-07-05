@@ -60,7 +60,7 @@ def fallback_patterns(entries: List[str]) -> dict:
 @app.on_event("startup")
 async def startup():
     init_db()
-    logger.info("✅ Database initialized")
+    logger.info("Database initialized")
 
 
 class EntriesInput(BaseModel):
@@ -103,10 +103,10 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
                 )
 
     if len(entries) < MIN_ENTRIES:
-        logger.info("ℹ️ Not enough entries for pattern analysis (%d)", len(entries))
+        logger.info("Not enough entries for pattern analysis (%d)", len(entries))
         return {"status": "insufficient_data", "entry_count": len(entries)}
 
-    logger.info(f"🔍 Analyzing {len(entries)} entries...")
+    logger.info("Analyzing %d entries...", len(entries))
     entries_text = "\n---\n".join(entries)
     prompt = build_pattern_prompt(entries_text, sentiment_hint)
 
@@ -130,17 +130,17 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
                 try:
                     pattern_data = json.loads(json_match.group())
                 except Exception:
-                    logger.warning("⚠️ JSON parse failed, using fallback")
+                    logger.warning("JSON parse failed, using fallback")
                     pattern_data = fallback_patterns(entries)
             else:
-                logger.warning("⚠️ No JSON in response, using fallback")
+                logger.warning("No JSON in response, using fallback")
                 pattern_data = fallback_patterns(entries)
 
             # Defensiv normalisieren (Modell haelt sich nicht immer ans Schema)
             pattern_data = _normalize(pattern_data)
-            logger.info("✅ Patterns detected")
+            logger.info("Patterns detected")
 
-            # 💾 SAVE TO DATABASE (inkl. der reichhaltigen Felder)
+            # In der DB speichern (inkl. der reichhaltigen Felder)
             save_pattern(
                 top_themes=pattern_data["recurring_themes"],
                 mood_trend=pattern_data["mood_trend"],
@@ -150,11 +150,11 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
                 language_shifts=pattern_data["language_shifts"],
                 summary=pattern_data["summary"],
             )
-            logger.info("💾 Saved to DB")
+            logger.info("Saved to DB")
 
             return pattern_data
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
+        logger.error("Error: %s", e)
         raise
 
 
