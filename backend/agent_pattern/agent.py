@@ -63,6 +63,7 @@ Respond ONLY with valid JSON (no markdown, no explanations) in exactly this stru
     "situations": ["<recurring situation or context>"],
     "triggers": {{"<trigger>": "<what emotion/reaction it tends to precede>"}},
     "language_shifts": ["<observed shift in tone or wording over time>"],
+    "observations": ["<one short, natural, neutral sentence a reader would find insightful>"],
     "mood_trend": "<improving, stable or declining>",
     "summary": "<2-3 neutral sentences describing the main patterns as observations>"
 }}
@@ -72,4 +73,8 @@ Rules:
 - Phrase everything as neutral observations, never as judgements, advice or diagnosis.
 - Derive every value from the actual entries. Never output placeholder or example values.
 - mood_trend must be one of exactly: improving, stable, declining.
+- observations: 1-3 short sentences in the reader's own perspective ("you"), each a
+  single concrete pattern. Examples of the STYLE (do not copy the content):
+  "Work came up several times, often linked to pressure." /
+  "Early-week entries used words like tired; by the weekend the tone shifted to grateful."
 """
