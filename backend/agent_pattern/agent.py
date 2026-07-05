@@ -10,6 +10,13 @@ definiert die "Persona" (role/goal/backstory). Aus dieser Persona wird in
 ``main.py`` der Prompt für das lokale Ollama-Modell zusammengebaut, damit die
 Agenten-Definition tatsächlich benutzt wird und kein toter Code ist.
 """
+import os
+
+# crewai 0.1.0 validiert beim Erzeugen eines Agent() das Vorhandensein eines
+# LLM-Keys, obwohl wir die Texte lokal ueber Ollama erzeugen und nie eine Crew
+# ausfuehren (kein externer Aufruf). Ein Platzhalter genuegt der Validierung.
+os.environ.setdefault("OPENAI_API_KEY", "not-needed-clarity-uses-local-ollama")
+
 from crewai import Agent
 
 pattern_agent = Agent(
