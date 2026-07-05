@@ -166,3 +166,16 @@ export function fetchLatestDigest(): Promise<Digest> {
 export function fetchLatestPatterns(): Promise<PatternResult> {
   return request<PatternResult>('pattern', '/patterns/latest');
 }
+
+/** Stößt eine Musteranalyse über die letzten `days` Tage an (Pattern-Agent).
+ *  Ohne `entries` liest der Agent die echten Einträge aus der DB. Läuft im
+ *  Hintergrund; das Ergebnis wird gespeichert und später via fetchLatestPatterns
+ *  gelesen. Die LLM-Analyse kann eine Weile dauern. */
+export function detectPatterns(days = 7): Promise<unknown> {
+  return request<unknown>(
+    'pattern',
+    '/detect-patterns',
+    { method: 'POST', body: JSON.stringify({ days }) },
+    300000,
+  );
+}
