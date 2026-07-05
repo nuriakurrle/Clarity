@@ -129,7 +129,7 @@ export type PatternResult = {
   mood_trend: 'improving' | 'stable' | 'declining';
   summary: string;
   created_at?: string;
-  status?: 'no_data';
+  status?: 'no_data' | 'insufficient_data';
 };
 
 // --- Aufrufe ------------------------------------------------------------------
@@ -171,8 +171,8 @@ export function fetchLatestPatterns(): Promise<PatternResult> {
  *  Ohne `entries` liest der Agent die echten Einträge aus der DB. Läuft im
  *  Hintergrund; das Ergebnis wird gespeichert und später via fetchLatestPatterns
  *  gelesen. Die LLM-Analyse kann eine Weile dauern. */
-export function detectPatterns(days = 7): Promise<unknown> {
-  return request<unknown>(
+export function detectPatterns(days = 7): Promise<PatternResult> {
+  return request<PatternResult>(
     'pattern',
     '/detect-patterns',
     { method: 'POST', body: JSON.stringify({ days }) },

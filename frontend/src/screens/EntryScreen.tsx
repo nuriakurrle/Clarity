@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { EditorToolbar, MoodPicker } from '../components/entry';
 import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
 import { analyzeEntry, detectPatterns } from '../services/api';
+import { notifyOnNewPatterns } from '../services/notifications';
 import { colors, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -58,7 +59,10 @@ export default function EntryScreen({ onDone }: Props) {
       await analyzeEntry(text, mood ?? undefined);
       // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert).
       // Der Agent liest die echten Eintraege der letzten 7 Tage aus der DB.
-      detectPatterns().catch(() => {});
+      // Danach ggf. eine lokale Push bei neu erkanntem Muster/Trigger.
+      detectPatterns()
+        .then((pattern) => notifyOnNewPatterns(pattern))
+        .catch(() => {});
       onDone?.();
     } catch (e) {
       Alert.alert(
