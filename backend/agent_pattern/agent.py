@@ -40,13 +40,31 @@ pattern_agent = Agent(
 )
 
 
+def _language_directive(text: str) -> str:
+    """Erkennt grob deutsche Eintraege und erzwingt deutsche Ausgabe.
+
+    Das kleine Modell (llama3.2) ignoriert eine englische 'antworte auf Deutsch'-
+    Regel oft. Die Anweisung *auf Deutsch* ganz oben ist ein deutlich staerkeres
+    Signal.
+    """
+    lowered = text.lower()
+    markers = ["ä", "ö", "ü", "ß", " der ", " die ", " und ", " ich ",
+               " nicht ", " mit ", " wieder ", " heute ", " mir ", " weil "]
+    hits = sum(1 for m in markers if m in lowered)
+    if hits >= 2:
+        return ("WICHTIG: Antworte AUSSCHLIESSLICH auf Deutsch. Alle Textwerte im "
+                "JSON (Themen, observations, summary usw.) muessen deutsch sein. "
+                "Nur die JSON-Schluessel und mood_trend bleiben englisch.\n\n")
+    return ""
+
+
 def build_pattern_prompt(entries_text: str, sentiment_hint: str = "") -> str:
     """Baut den LLM-Prompt aus der Agenten-Persona + den Einträgen.
 
     Wird von ``main.py`` genutzt, damit die oben definierte Agenten-Rolle den
     tatsächlichen Ollama-Aufruf steuert.
     """
-    return f"""{pattern_agent.role}.
+    return f"""{_language_directive(entries_text)}{pattern_agent.role}.
 
 Your goal: {pattern_agent.goal}
 
@@ -69,6 +87,7 @@ Respond ONLY with valid JSON (no markdown, no explanations) in exactly this stru
 }}
 
 Rules:
+- Write ALL text values in the SAME language as the journal entries (German entries -> German output). Only the JSON keys and mood_trend stay in English.
 - Only include things that actually RECUR across entries; leave arrays empty if nothing recurs.
 - Phrase everything as neutral observations, never as judgements, advice or diagnosis.
 - Derive every value from the actual entries. Never output placeholder or example values.
