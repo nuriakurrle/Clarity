@@ -121,12 +121,20 @@ function formatMoodChange(profile: MoodProfile): string {
   return `${percent > 0 ? '+' : ''}${percent}%`;
 }
 
-/** Themen & Personen aus dem Pattern-Agent, dedupliziert (für die Tag-Wolke). */
-function patternTags(pattern: PatternResult | null): string[] {
+type TagItem = { label: string; count?: number };
+
+/** Themen (mit Häufigkeit) & Personen aus dem Pattern-Agent, dedupliziert. */
+function patternTags(pattern: PatternResult | null): TagItem[] {
   if (!pattern || pattern.status === 'no_data') return [];
-  const themes = pattern.recurring_themes ?? [];
-  const people = pattern.recurring_people ?? [];
-  return [...new Set([...themes, ...people])];
+  const counts = pattern.theme_counts ?? {};
+  const themes = (pattern.recurring_themes ?? []).map((label) => ({
+    label,
+    count: counts[label] && counts[label] > 0 ? counts[label] : undefined,
+  }));
+  const people = (pattern.recurring_people ?? []).map((label) => ({ label, count: undefined }));
+  return [...themes, ...people].filter(
+    (item, i, arr) => arr.findIndex((x) => x.label === item.label) === i,
+  );
 }
 
 /** Trigger als lesbare "Auslöser → Reaktion"-Zeilen. */
@@ -239,8 +247,8 @@ export default function InsightScreen() {
             <>
               {themes.length > 0 && (
                 <View style={styles.tagWrap}>
-                  {themes.map((theme) => (
-                    <Tag key={theme} label={theme} />
+                  {themes.map((item) => (
+                    <Tag key={item.label} label={item.label} count={item.count} />
                   ))}
                 </View>
               )}

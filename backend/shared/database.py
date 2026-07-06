@@ -77,7 +77,8 @@ def init_db():
     existing_pattern_cols = {
         row[1] for row in cursor.execute("PRAGMA table_info(pattern_detection)").fetchall()
     }
-    for column in ("recurring_people", "situations", "language_shifts", "observations", "summary"):
+    for column in ("recurring_people", "situations", "language_shifts", "observations",
+                   "theme_counts", "new_themes", "theme_changes", "summary"):
         if column not in existing_pattern_cols:
             cursor.execute(f"ALTER TABLE pattern_detection ADD COLUMN {column} TEXT")
 
@@ -352,6 +353,9 @@ def save_pattern(
     situations: Optional[list] = None,
     language_shifts: Optional[list] = None,
     observations: Optional[list] = None,
+    theme_counts: Optional[dict] = None,
+    new_themes: Optional[list] = None,
+    theme_changes: Optional[dict] = None,
     summary: str = "",
 ) -> None:
     """Save pattern detection result.
@@ -364,8 +368,9 @@ def save_pattern(
     cursor.execute(
         """INSERT INTO pattern_detection
            (top_themes, mood_trend, triggers,
-            recurring_people, situations, language_shifts, observations, summary)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            recurring_people, situations, language_shifts, observations,
+            theme_counts, new_themes, theme_changes, summary)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             json.dumps(top_themes),
             mood_trend,
@@ -374,6 +379,9 @@ def save_pattern(
             json.dumps(situations or []),
             json.dumps(language_shifts or []),
             json.dumps(observations or []),
+            json.dumps(theme_counts or {}),
+            json.dumps(new_themes or []),
+            json.dumps(theme_changes or {}),
             summary,
         ),
     )
@@ -394,9 +402,11 @@ def get_latest_pattern() -> Optional[Dict[str, Any]]:
     if row is None:
         return None
     pattern = dict(row)
-    for field in ("top_themes", "recurring_people", "situations", "language_shifts", "observations"):
+    for field in ("top_themes", "recurring_people", "situations", "language_shifts",
+                  "observations", "new_themes"):
         pattern[field] = json.loads(pattern[field]) if pattern.get(field) else []
-    pattern["triggers"] = json.loads(pattern["triggers"]) if pattern.get("triggers") else {}
+    for field in ("triggers", "theme_counts", "theme_changes"):
+        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else {}
     return pattern
 
 def save_prompts(entry_id: int, prompts: list) -> None:

@@ -15,7 +15,7 @@ import httpx, uvicorn
 
 sys.path.insert(0, '/app/shared')
 from database import (
-    init_db, save_pattern, get_latest_pattern,
+    init_db, save_pattern, get_latest_pattern, get_patterns_since,
     get_entries_since, get_sentiments_since,
 )
 from agent import build_pattern_prompt
@@ -55,6 +55,43 @@ def fallback_patterns(entries: List[str]) -> dict:
         "mood_trend": "stable",
         "summary": "",
     }
+
+
+def _theme_counts(themes: List[str], entries: List[str]) -> dict:
+    """Zaehlt grob, in wie vielen Eintraegen ein Thema vorkommt (#50).
+
+    Themen sind LLM-Phrasen (z.B. "Uni-Stress"); wir zaehlen Eintraege, die ein
+    aussagekraeftiges Wort des Themas enthalten.
+    """
+    lowered = [e.lower() for e in entries]
+    counts = {}
+    for theme in themes:
+        words = [w for w in re.split(r"[^0-9a-zäöüß]+", theme.lower()) if len(w) > 3]
+        if not words:
+            words = [theme.lower()]
+        counts[theme] = sum(1 for e in lowered if any(w in e for w in words))
+    return counts
+
+
+async def _ollama_generate(prompt: str) -> str:
+    """Ruft Ollama auf - hoeheres Timeout + ein Retry bei kaltem Modell (#54)."""
+    payload = {
+        "model": MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "format": "json",
+        "options": {"temperature": 0.3},
+    }
+    last_err: Optional[Exception] = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=180) as client:
+                response = await client.post(f"{OLLAMA_HOST}/api/generate", json=payload)
+            return response.json().get("response", "")
+        except httpx.TimeoutException as e:
+            last_err = e
+            logger.warning("Ollama Timeout (Versuch %d/2), neuer Versuch...", attempt + 1)
+    raise last_err  # type: ignore[misc]
 
 
 @app.on_event("startup")
@@ -111,49 +148,64 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
     prompt = build_pattern_prompt(entries_text, sentiment_hint)
 
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(
-                f"{OLLAMA_HOST}/api/generate",
-                json={
-                    "model": MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.3},
-                },
-            )
-            result = response.json()
-            response_text = result.get("response", "")
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        response_text = await _ollama_generate(prompt)
+        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
 
-            if json_match:
-                try:
-                    pattern_data = json.loads(json_match.group())
-                except Exception:
-                    logger.warning("JSON parse failed, using fallback")
-                    pattern_data = fallback_patterns(entries)
-            else:
-                logger.warning("No JSON in response, using fallback")
+        if json_match:
+            try:
+                pattern_data = json.loads(json_match.group())
+            except Exception:
+                logger.warning("JSON parse failed, using fallback")
                 pattern_data = fallback_patterns(entries)
+        else:
+            logger.warning("No JSON in response, using fallback")
+            pattern_data = fallback_patterns(entries)
 
-            # Defensiv normalisieren (Modell haelt sich nicht immer ans Schema)
-            pattern_data = _normalize(pattern_data)
-            logger.info("Patterns detected")
+        # Defensiv normalisieren (Modell haelt sich nicht immer ans Schema)
+        pattern_data = _normalize(pattern_data)
 
-            # In der DB speichern (inkl. der reichhaltigen Felder)
-            save_pattern(
-                top_themes=pattern_data["recurring_themes"],
-                mood_trend=pattern_data["mood_trend"],
-                triggers=pattern_data["triggers"],
-                recurring_people=pattern_data["recurring_people"],
-                situations=pattern_data["situations"],
-                language_shifts=pattern_data["language_shifts"],
-                observations=pattern_data["observations"],
-                summary=pattern_data["summary"],
-            )
-            logger.info("Saved to DB")
+        # Haeufigkeit pro Thema (#50)
+        theme_counts = _theme_counts(pattern_data["recurring_themes"], entries)
 
-            return pattern_data
+        # Vergleich mit der vorherigen Analyse: neue Themen (#51) + Trend (#52)
+        prev = get_latest_pattern()
+        prev_themes = prev.get("top_themes", []) if prev else []
+        prev_counts = prev.get("theme_counts", {}) if prev else {}
+        new_themes = [t for t in pattern_data["recurring_themes"] if t not in prev_themes]
+        theme_changes = {}
+        for theme in pattern_data["recurring_themes"]:
+            count = theme_counts.get(theme, 0)
+            if theme not in prev_counts:
+                theme_changes[theme] = "neu"
+            elif count > prev_counts[theme]:
+                theme_changes[theme] = "gestiegen"
+            elif count < prev_counts[theme]:
+                theme_changes[theme] = "gesunken"
+            else:
+                theme_changes[theme] = "gleich"
+
+        pattern_data["theme_counts"] = theme_counts
+        pattern_data["new_themes"] = new_themes
+        pattern_data["theme_changes"] = theme_changes
+        logger.info("Patterns detected")
+
+        # In der DB speichern (inkl. der reichhaltigen Felder)
+        save_pattern(
+            top_themes=pattern_data["recurring_themes"],
+            mood_trend=pattern_data["mood_trend"],
+            triggers=pattern_data["triggers"],
+            recurring_people=pattern_data["recurring_people"],
+            situations=pattern_data["situations"],
+            language_shifts=pattern_data["language_shifts"],
+            observations=pattern_data["observations"],
+            theme_counts=theme_counts,
+            new_themes=new_themes,
+            theme_changes=theme_changes,
+            summary=pattern_data["summary"],
+        )
+        logger.info("Saved to DB")
+
+        return pattern_data
     except Exception as e:
         logger.error("Error: %s", e)
         raise
@@ -201,6 +253,16 @@ async def patterns_latest():
         return {"status": "no_data"}
     pattern["recurring_themes"] = pattern.pop("top_themes", [])
     return pattern
+
+
+@app.get("/patterns/history")
+async def patterns_history(days: int = 30):
+    """Vergangene Musteranalysen der letzten `days` Tage (Entwicklung ueber Zeit)."""
+    rows = get_patterns_since(_since(days))
+    # top_themes -> recurring_themes fuer ein einheitliches Schema
+    for row in rows:
+        row["recurring_themes"] = row.pop("top_themes", [])
+    return {"days": days, "count": len(rows), "history": rows}
 
 
 if __name__ == "__main__":

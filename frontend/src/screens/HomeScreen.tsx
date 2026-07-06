@@ -57,14 +57,19 @@ export default function HomeScreen() {
       ? pattern
       : null;
   const observations = activePattern?.observations ?? [];
-  const tags = activePattern
-    ? [...new Set([
-        ...(activePattern.recurring_themes ?? []),
-        ...(activePattern.recurring_people ?? []),
-      ])]
+  // Themen mit Häufigkeit ("Uni 5×"), Personen ohne Zähler; nach Label dedupliziert.
+  const themeCounts = activePattern?.theme_counts ?? {};
+  const tagItems = activePattern
+    ? [
+        ...(activePattern.recurring_themes ?? []).map((label) => ({
+          label,
+          count: themeCounts[label] && themeCounts[label] > 0 ? themeCounts[label] : undefined,
+        })),
+        ...(activePattern.recurring_people ?? []).map((label) => ({ label, count: undefined })),
+      ].filter((item, i, arr) => arr.findIndex((x) => x.label === item.label) === i)
     : [];
   const themeCount = activePattern?.recurring_themes?.length ?? 0;
-  const hasPattern = observations.length > 0 || tags.length > 0;
+  const hasPattern = observations.length > 0 || tagItems.length > 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -107,10 +112,10 @@ export default function HomeScreen() {
                 {observations.map((o, i) => (
                   <Bullet key={i} text={o} />
                 ))}
-                {tags.length > 0 ? (
+                {tagItems.length > 0 ? (
                   <View style={styles.pillWrap}>
-                    {tags.map((tag) => (
-                      <Tag key={tag} label={tag} />
+                    {tagItems.map((item) => (
+                      <Tag key={item.label} label={item.label} count={item.count} />
                     ))}
                   </View>
                 ) : null}
