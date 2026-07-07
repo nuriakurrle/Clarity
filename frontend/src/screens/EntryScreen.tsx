@@ -239,62 +239,6 @@ export default function EntryScreen({ onDone }: Props) {
   );
 }
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scroll}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <Text style={styles.date}>
-            {dateLabel} · {timeLabel}
-          </Text>
-
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Titel"
-            placeholderTextColor={colors.textFaint}
-            style={styles.title}
-          />
-
-          <EditorToolbar value={format} onChange={setFormat} />
-
-          <TextInput
-            value={body}
-            onChangeText={setBody}
-            placeholder="Schreib, was dir gerade durch den Kopf geht…"
-            placeholderTextColor={colors.textFaint}
-            style={[styles.body, formatToStyle(format)]}
-            multiline
-            textAlignVertical="top"
-          />
-        </ScrollView>
-
-        <View style={styles.footer}>
-          <MoodPicker value={mood} onChange={setMood} />
-          <TouchableOpacity
-            style={[styles.doneBtn, saving && styles.doneBtnDisabled]}
-            onPress={handleDone}
-            activeOpacity={0.8}
-            disabled={saving}
-          >
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={styles.doneText}>Fertig</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
-  );
-}
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.surface },
   flex: { flex: 1 },
