@@ -42,6 +42,8 @@ export default function HomeScreen({ onWrite }: Props) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [offline, setOffline] = useState(false);
+  // Sichtbare Hoehe, damit der Begruessungs-Hero den ersten Screen ganz fuellt.
+  const [viewportH, setViewportH] = useState(0);
 
   useEffect(() => {
     fetchLatestDigest()
@@ -79,8 +81,12 @@ export default function HomeScreen({ onWrite }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <WelcomeHero onWrite={onWrite} />
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
+      >
+        <WelcomeHero onWrite={onWrite} minHeight={viewportH || undefined} />
 
         <View style={styles.body}>
           <SectionLabel text="Tonverlauf" />

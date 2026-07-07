@@ -27,9 +27,9 @@ function todayLine(): string {
   return `${WEEKDAYS[now.getDay()]}, ${now.getDate()}. ${MONTHS[now.getMonth()]}`;
 }
 
-type Props = { onWrite?: () => void };
+type Props = { onWrite?: () => void; minHeight?: number };
 
-export function WelcomeHero({ onWrite }: Props) {
+export function WelcomeHero({ onWrite, minHeight }: Props) {
   // Sanftes "Atmen" des Glow-Kreises hinter dem Button.
   const breath = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -47,7 +47,7 @@ export function WelcomeHero({ onWrite }: Props) {
   const glowOpacity = breath.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0.7] });
 
   return (
-    <View style={styles.hero}>
+    <View style={[styles.hero, { minHeight: minHeight ?? HERO_HEIGHT }]}>
       <LinearGradient
         colors={[colors.warmSoft, colors.warmSofter, colors.bg]}
         locations={[0, 0.55, 1]}
@@ -86,7 +86,6 @@ export function WelcomeHero({ onWrite }: Props) {
 
 const styles = StyleSheet.create({
   hero: {
-    height: HERO_HEIGHT,
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 20,
