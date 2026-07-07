@@ -10,10 +10,11 @@
 import Constants from 'expo-constants';
 
 // Bewusst nur die Agenten, deren Endpoints wir aktuell nutzen:
-// Sentiment (8001), Pattern (8002, GET /patterns/latest) und Digest (8004).
+// Sentiment (8001), Pattern (8002), Prompt (8003) und Digest (8004).
 const PORTS = {
   sentiment: 8001,
   pattern: 8002,
+  prompt: 8003,
   digest: 8004,
 } as const;
 
@@ -135,6 +136,18 @@ export type PatternResult = {
   status?: 'no_data' | 'insufficient_data';
 };
 
+/** Ergebnis des Prompt-Agents (reflektive Fragen). */
+export type PromptResponse = {
+  question: string;
+  prompt_type: string;
+  category: string;
+  subcategory?: string | null;
+  context_reason: string;
+  suggested_timing?: string;
+  entry_id?: number;
+  language: string;
+};
+
 // --- Aufrufe ------------------------------------------------------------------
 
 /** Speichert einen Tagebucheintrag und analysiert ihn (Sentiment-Agent).
@@ -180,5 +193,28 @@ export function detectPatterns(days = 7): Promise<PatternResult> {
     '/detect-patterns',
     { method: 'POST', body: JSON.stringify({ days }) },
     300000,
+  );
+}
+
+/** Generiert eine reflektive Frage basierend auf dem Journal-Text (Prompt-Agent).
+ *  Kontextabhängig - passt die Frage an Kontext, Stimmung und Muster an.
+ *  Die Antwort enthält einen Grund, warum diese Frage gewählt wurde (Explainability). */
+export function generatePrompt(params: {
+  journal_text: string;
+  context?: 'editor_open' | 'post_entry' | 'home_screen' | 'weekly';
+  streak_days?: number;
+}): Promise<PromptResponse> {
+  return request<PromptResponse>(
+    'prompt',
+    '/generate-prompt',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        journal_text: params.journal_text,
+        context: params.context ?? 'editor_open',
+        streak_days: params.streak_days ?? 0,
+      }),
+    },
+    30000,
   );
 }
