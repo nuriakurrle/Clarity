@@ -16,12 +16,14 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, ScreenHeader } from '../components';
+import { Ionicons } from '@expo/vector-icons';
+import { AuraHeader, Card } from '../components';
 import { Bullet } from '../components/home';
 import {
   MoodBar,
   MoodBarChart,
   NumberedItem,
+  PatternThread,
   SegmentedControl,
   StatBox,
   Tag,
@@ -35,6 +37,7 @@ import {
   fetchMoodProfile,
 } from '../services/api';
 import { colors, MoodLevel } from '../theme/colors';
+import { serif } from '../theme/typography';
 
 type Range = 'Woche' | 'Monat' | 'Jahr';
 
@@ -198,7 +201,8 @@ export default function InsightScreen() {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHeader
+        <AuraHeader
+          label="Diese Woche"
           title="Einblicke"
           subtitle="Muster und Stimmungen aus deinen Einträgen"
         />
@@ -238,13 +242,23 @@ export default function InsightScreen() {
           )}
         </Card>
 
-        <Card
-          title="Wiederkehrende Muster"
-          subtitle="Themen & Auslöser über mehrere Einträge (Pattern-Agent)"
-          style={styles.spacer16}
-        >
+        <Card style={styles.spacer16}>
+          <View style={styles.agentLabelRow}>
+            <Ionicons name="share-social-outline" size={13} color={colors.primary} />
+            <Text style={styles.agentLabel}>Pattern Agent</Text>
+          </View>
+          <Text style={styles.patternTitle}>Wiederkehrende Muster</Text>
+          <Text style={styles.patternSubtitle}>
+            Themen & Auslöser über mehrere Einträge
+          </Text>
+
           {themes.length > 0 || triggers.length > 0 ? (
             <>
+              {themes.length > 0 && (
+                <View style={styles.threadWrap}>
+                  <PatternThread />
+                </View>
+              )}
               {themes.length > 0 && (
                 <View style={styles.tagWrap}>
                   {themes.map((item) => (
@@ -255,7 +269,10 @@ export default function InsightScreen() {
               {triggers.length > 0 && (
                 <View style={styles.triggerList}>
                   {triggers.map((t, i) => (
-                    <Bullet key={i} text={t} />
+                    <View key={i} style={styles.triggerRow}>
+                      <View style={styles.triggerDot} />
+                      <Text style={styles.triggerText}>{t}</Text>
+                    </View>
                   ))}
                 </View>
               )}
@@ -299,8 +316,34 @@ const styles = StyleSheet.create({
   spacer20: { marginTop: 20 },
   spacer16: { marginTop: 16 },
   statsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
-  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  triggerList: { marginTop: 12 },
+  tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
+  triggerList: { marginTop: 14 },
+  agentLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  agentLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    color: colors.primary,
+  },
+  patternTitle: {
+    fontFamily: serif,
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 8,
+  },
+  patternSubtitle: { fontSize: 13, lineHeight: 19, color: colors.textMuted, marginTop: 2 },
+  threadWrap: { marginTop: 16, marginBottom: 4, alignItems: 'flex-start' },
+  triggerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  triggerDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.warm,
+    marginRight: 10,
+  },
+  triggerText: { flex: 1, fontSize: 14, lineHeight: 20, color: colors.text },
   chartLoading: { height: 140 },
   hint: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
   bottomSpace: { height: 24 },

@@ -5,3 +5,4 @@ export { SegmentedControl } from './SegmentedControl';
 export { StatBox } from './StatBox';
 export { Tag } from './Tag';
 export { NumberedItem } from './NumberedItem';
+export { PatternThread } from './PatternThread';
