@@ -46,7 +46,11 @@ export default function HomeScreen({ onWrite }: Props) {
   useEffect(() => {
     fetchLatestDigest()
       .then(setDigest)
-      .catch(() => setOffline(true));
+      .catch((e) => {
+        // Nur bei echtem Verbindungsfehler "offline". Ein HTTP-Fehler wie 404
+        // heisst nur: es gibt noch keinen Wochenrueckblick (kein Backend-Problem).
+        if (!String(e?.message ?? '').includes('HTTP')) setOffline(true);
+      });
     fetchLatestPatterns()
       .then(setPattern)
       .catch(() => {});
