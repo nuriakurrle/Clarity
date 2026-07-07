@@ -3,7 +3,7 @@
  *
  * Zeigt die ausgewerteten Einblicke aus dem Journaling:
  *   - Stimmungsverlauf   ← Sentiment-Agent (GET /mood-profile)
- *   - Muster/Themen      ← Digest-Agent    (GET /digest/latest, Highlights + Challenges)
+ *   - Muster & Trigger   ← Pattern-Agent   (GET /patterns/latest)
  *   - Wochenrückblick    ← Digest-Agent    (GET /digest/latest)
  *   - Reflexionsfragen   ← lokale Impulse (bis der Prompt-Agent einen
  *                          GET-Endpoint für gespeicherte Fragen anbietet)
@@ -29,7 +29,9 @@ import {
 import {
   Digest,
   MoodProfile,
+  PatternResult,
   fetchLatestDigest,
+  fetchLatestPatterns,
   fetchMoodProfile,
 } from '../services/api';
 import { colors, MoodLevel } from '../theme/colors';
@@ -119,10 +121,28 @@ function formatMoodChange(profile: MoodProfile): string {
   return `${percent > 0 ? '+' : ''}${percent}%`;
 }
 
-/** Themen der Woche aus dem Digest (Herausforderungen + Highlights, dedupliziert). */
-function digestThemes(digest: Digest | null): string[] {
-  if (!digest) return [];
-  return [...new Set([...digest.challenges, ...digest.highlights])];
+type TagItem = { label: string; count?: number };
+
+/** Themen (mit Häufigkeit) & Personen aus dem Pattern-Agent, dedupliziert. */
+function patternTags(pattern: PatternResult | null): TagItem[] {
+  if (!pattern || pattern.status === 'no_data') return [];
+  const counts = pattern.theme_counts ?? {};
+  const themes = (pattern.recurring_themes ?? []).map((label) => ({
+    label,
+    count: counts[label] && counts[label] > 0 ? counts[label] : undefined,
+  }));
+  const people = (pattern.recurring_people ?? []).map((label) => ({ label, count: undefined }));
+  return [...themes, ...people].filter(
+    (item, i, arr) => arr.findIndex((x) => x.label === item.label) === i,
+  );
+}
+
+/** Trigger als lesbare "Auslöser → Reaktion"-Zeilen. */
+function patternTriggers(pattern: PatternResult | null): string[] {
+  if (!pattern || pattern.status === 'no_data') return [];
+  return Object.entries(pattern.triggers ?? {}).map(([trigger, reaction]) =>
+    reaction ? `${trigger} → ${reaction}` : trigger,
+  );
 }
 
 // --- Screen -----------------------------------------------------------------
@@ -131,12 +151,14 @@ export default function InsightScreen() {
   const [range, setRange] = useState<Range>('Woche');
   const [profile, setProfile] = useState<MoodProfile | null>(null);
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  // Wochenrückblick einmalig laden (unabhängig vom Zeitraum)
+  // Wochenrückblick & erkannte Muster einmalig laden (unabhängig vom Zeitraum)
   useEffect(() => {
     fetchLatestDigest().then(setDigest).catch(() => {});
+    fetchLatestPatterns().then(setPattern).catch(() => {});
   }, []);
 
   // Stimmungsprofil neu laden, wenn der Zeitraum wechselt
@@ -163,7 +185,8 @@ export default function InsightScreen() {
     ? profile.mood_profile.daily_breakdown.reduce((sum, d) => sum + d.entry_count, 0)
     : 0;
   const moodChange = profile ? formatMoodChange(profile) : '±0%';
-  const themes = digestThemes(digest);
+  const themes = patternTags(pattern);
+  const triggers = patternTriggers(pattern);
 
   const digestBullets = digest
     ? [digest.summary, ...digest.growth].filter(Boolean)
@@ -217,15 +240,26 @@ export default function InsightScreen() {
 
         <Card
           title="Wiederkehrende Muster"
-          subtitle="Häufige Themen in deinen Einträgen"
+          subtitle="Themen & Auslöser über mehrere Einträge (Pattern-Agent)"
           style={styles.spacer16}
         >
-          {themes.length > 0 ? (
-            <View style={styles.tagWrap}>
-              {themes.map((theme) => (
-                <Tag key={theme} label={theme} />
-              ))}
-            </View>
+          {themes.length > 0 || triggers.length > 0 ? (
+            <>
+              {themes.length > 0 && (
+                <View style={styles.tagWrap}>
+                  {themes.map((item) => (
+                    <Tag key={item.label} label={item.label} count={item.count} />
+                  ))}
+                </View>
+              )}
+              {triggers.length > 0 && (
+                <View style={styles.triggerList}>
+                  {triggers.map((t, i) => (
+                    <Bullet key={i} text={t} />
+                  ))}
+                </View>
+              )}
+            </>
           ) : (
             <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
           )}
@@ -266,6 +300,7 @@ const styles = StyleSheet.create({
   spacer16: { marginTop: 16 },
   statsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  triggerList: { marginTop: 12 },
   chartLoading: { height: 140 },
   hint: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
   bottomSpace: { height: 24 },

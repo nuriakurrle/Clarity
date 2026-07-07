@@ -13,28 +13,63 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SectionLabel } from '../components';
+import { Card, SectionLabel } from '../components';
 import { Bullet, QuoteBlock } from '../components/home';
 import { Tag } from '../components/insight';
-import { Digest, fetchLatestDigest } from '../services/api';
+import {
+  Digest,
+  PatternResult,
+  fetchLatestDigest,
+  fetchLatestPatterns,
+} from '../services/api';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
 const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Nur Muster dieser Woche auf Home zeigen (created_at ist UTC "YYYY-MM-DD HH:MM:SS"). */
+function isWithinLastWeek(createdAt?: string): boolean {
+  if (!createdAt) return true; // ohne Zeitstempel nicht ausschliessen
+  const ts = Date.parse(`${createdAt.replace(' ', 'T')}Z`);
+  if (Number.isNaN(ts)) return true;
+  return Date.now() - ts < WEEK_MS;
+}
 
 export default function HomeScreen() {
   const [digest, setDigest] = useState<Digest | null>(null);
+  const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [offline, setOffline] = useState(false);
 
   useEffect(() => {
     fetchLatestDigest()
       .then(setDigest)
       .catch(() => setOffline(true));
+    fetchLatestPatterns()
+      .then(setPattern)
+      .catch(() => {});
   }, []);
 
-  const themes = digest
-    ? [...new Set([...digest.challenges, ...digest.highlights])]
+  // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren".
+  // Nur anzeigen, wenn die Analyse aus der letzten Woche stammt.
+  const activePattern =
+    pattern && pattern.status !== 'no_data' && isWithinLastWeek(pattern.created_at)
+      ? pattern
+      : null;
+  const observations = activePattern?.observations ?? [];
+  // Themen mit Häufigkeit ("Uni 5×"), Personen ohne Zähler; nach Label dedupliziert.
+  const themeCounts = activePattern?.theme_counts ?? {};
+  const tagItems = activePattern
+    ? [
+        ...(activePattern.recurring_themes ?? []).map((label) => ({
+          label,
+          count: themeCounts[label] && themeCounts[label] > 0 ? themeCounts[label] : undefined,
+        })),
+        ...(activePattern.recurring_people ?? []).map((label) => ({ label, count: undefined })),
+      ].filter((item, i, arr) => arr.findIndex((x) => x.label === item.label) === i)
     : [];
+  const themeCount = activePattern?.recurring_themes?.length ?? 0;
+  const hasPattern = observations.length > 0 || tagItems.length > 0;
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -64,13 +99,27 @@ export default function HomeScreen() {
           )}
 
           <View style={styles.spacer32}>
-            <SectionLabel text="Wiederkehrende Themen" />
-            {themes.length > 0 ? (
-              <View style={styles.pillWrap}>
-                {themes.map((theme) => (
-                  <Tag key={theme} label={theme} />
+            <SectionLabel
+              text="Themen, die wiederkehren"
+              emphasis={
+                hasPattern && themeCount > 0
+                  ? `${themeCount} ${themeCount === 1 ? 'Thema' : 'Themen'}`
+                  : undefined
+              }
+            />
+            {hasPattern ? (
+              <Card style={styles.themeCard}>
+                {observations.map((o, i) => (
+                  <Bullet key={i} text={o} />
                 ))}
-              </View>
+                {tagItems.length > 0 ? (
+                  <View style={styles.pillWrap}>
+                    {tagItems.map((item) => (
+                      <Tag key={item.label} label={item.label} count={item.count} />
+                    ))}
+                  </View>
+                ) : null}
+              </Card>
             ) : (
               <Text style={styles.hint}>Noch keine Muster erkannt.</Text>
             )}
@@ -102,6 +151,7 @@ const styles = StyleSheet.create({
   sectionContent: { marginTop: 12, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  themeCard: { marginTop: 12 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
   affirmation: {
     fontFamily: serif,
