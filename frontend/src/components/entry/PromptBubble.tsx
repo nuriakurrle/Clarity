@@ -12,11 +12,11 @@ type Props = {
 };
 
 export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconOnly = false }: Props) {
-  const opacity = useRef(new Animated.Value(1)).current;
+  const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const tipOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.timing(opacity, { toValue: visible ? 1 : 0.5, duration: 350, useNativeDriver: true }).start();
+    Animated.timing(opacity, { toValue: visible ? 1 : 0, duration: 300, useNativeDriver: true }).start();
   }, [visible, opacity]);
 
   // show transient preview tooltip whenever suggestion changes
@@ -30,12 +30,12 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
     ]).start();
   }, [suggestion, tipOpacity]);
 
-  if (!suggestion && !visible) return null;
+  if (!visible) return null;
 
   return (
     <Animated.View pointerEvents={'auto'} style={[styles.container, { opacity: opacity }]}> 
       <Animated.View style={[styles.previewTip, { opacity: tipOpacity }]} pointerEvents="none">
-        <Text numberOfLines={2} ellipsizeMode="tail" style={styles.previewText}>{suggestion}</Text>
+        {suggestion && <Text numberOfLines={2} ellipsizeMode="tail" style={styles.previewText}>{suggestion}</Text>}
       </Animated.View>
       <Pressable onPress={() => onRequestPreview && onRequestPreview()} style={styles.bubble} android_ripple={{ color: '#eee' }}>
         <Ionicons name="sparkles" size={16} color={colors.warm} />
@@ -46,10 +46,10 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    right: 18,
-    bottom: 92,
-    zIndex: 60,
+    marginTop: 16,
+    marginBottom: 8,
+    alignSelf: 'flex-end',
+    marginRight: 4,
   },
   previewTip: {
     position: 'absolute',
