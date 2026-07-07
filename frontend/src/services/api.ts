@@ -10,9 +10,10 @@
 import Constants from 'expo-constants';
 
 // Bewusst nur die Agenten, deren Endpoints wir aktuell nutzen:
-// Sentiment (eigener Agent) und Digest (hat bereits GET /digest/latest).
+// Sentiment (8001), Pattern (8002, GET /patterns/latest) und Digest (8004).
 const PORTS = {
   sentiment: 8001,
+  pattern: 8002,
   digest: 8004,
 } as const;
 
@@ -117,6 +118,23 @@ export type Digest = {
   affirmation: string;
 };
 
+/** Ergebnis des Pattern-Agents (wiederkehrende Muster über mehrere Einträge). */
+export type PatternResult = {
+  recurring_themes: string[];
+  recurring_people: string[];
+  situations: string[];
+  triggers: Record<string, string>;
+  language_shifts: string[];
+  observations: string[];
+  theme_counts?: Record<string, number>;
+  new_themes?: string[];
+  theme_changes?: Record<string, string>;
+  mood_trend: 'improving' | 'stable' | 'declining';
+  summary: string;
+  created_at?: string;
+  status?: 'no_data' | 'insufficient_data';
+};
+
 // --- Aufrufe ------------------------------------------------------------------
 
 /** Speichert einen Tagebucheintrag und analysiert ihn (Sentiment-Agent).
@@ -145,4 +163,22 @@ export function fetchEntries(): Promise<{ entries: EntryRecord[] }> {
 /** Letzter gespeicherter Wochenrückblick (Digest-Agent). */
 export function fetchLatestDigest(): Promise<Digest> {
   return request<Digest>('digest', '/digest/latest');
+}
+
+/** Zuletzt erkannte wiederkehrende Muster & Trigger (Pattern-Agent). */
+export function fetchLatestPatterns(): Promise<PatternResult> {
+  return request<PatternResult>('pattern', '/patterns/latest');
+}
+
+/** Stößt eine Musteranalyse über die letzten `days` Tage an (Pattern-Agent).
+ *  Ohne `entries` liest der Agent die echten Einträge aus der DB. Läuft im
+ *  Hintergrund; das Ergebnis wird gespeichert und später via fetchLatestPatterns
+ *  gelesen. Die LLM-Analyse kann eine Weile dauern. */
+export function detectPatterns(days = 7): Promise<PatternResult> {
+  return request<PatternResult>(
+    'pattern',
+    '/detect-patterns',
+    { method: 'POST', body: JSON.stringify({ days }) },
+    300000,
+  );
 }
