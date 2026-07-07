@@ -5,6 +5,7 @@
  *   import { SearchBar } from '../components/search';
  */
 export { ScreenHeader } from './ScreenHeader';
+export { AuraHeader } from './AuraHeader';
 export { Card } from './Card';
 export { SectionLabel } from './SectionLabel';
 export { BottomNav } from './BottomNav';
