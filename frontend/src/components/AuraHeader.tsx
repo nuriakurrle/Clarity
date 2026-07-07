@@ -5,14 +5,16 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
 
 type Props = { label?: string; title: string; subtitle?: string };
 
 export function AuraHeader({ label, title, subtitle }: Props) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { paddingTop: insets.top + 14 }]}>
       <LinearGradient
         colors={[colors.warmSoft, colors.primarySoft, colors.bg]}
         start={{ x: 0, y: 0 }}
@@ -29,11 +31,9 @@ export function AuraHeader({ label, title, subtitle }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: 20,
-    paddingTop: 18,
     paddingBottom: 28,
     marginHorizontal: -20, // randlos bis zum Bildschirmrand
-    marginTop: -8,
-    paddingLeft: 20,
+    marginTop: -8, // die paddingTop des ScrollViews ausgleichen -> bis ganz oben
   },
   label: {
     fontSize: 12,
