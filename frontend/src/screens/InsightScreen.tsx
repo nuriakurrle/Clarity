@@ -313,7 +313,7 @@ export default function InsightScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { paddingHorizontal: 20, paddingTop: 8 },
-  spacer20: { marginTop: 20 },
+  spacer20: { marginTop: 12 },
   spacer16: { marginTop: 16 },
   statsRow: { flexDirection: 'row', gap: 12, marginTop: 16 },
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 },
