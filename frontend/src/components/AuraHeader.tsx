@@ -14,7 +14,7 @@ type Props = { label?: string; title: string; subtitle?: string };
 export function AuraHeader({ label, title, subtitle }: Props) {
   const insets = useSafeAreaInsets();
   return (
-    <View style={[styles.wrap, { paddingTop: insets.top + 14 }]}>
+    <View style={[styles.wrap, { paddingTop: insets.top + 4 }]}>
       <LinearGradient
         colors={[colors.warmSoft, colors.primarySoft, colors.bg]}
         start={{ x: 0, y: 0 }}
@@ -31,7 +31,7 @@ export function AuraHeader({ label, title, subtitle }: Props) {
 const styles = StyleSheet.create({
   wrap: {
     paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingBottom: 22,
     marginHorizontal: -20, // randlos bis zum Bildschirmrand
     marginTop: -8, // die paddingTop des ScrollViews ausgleichen -> bis ganz oben
   },
