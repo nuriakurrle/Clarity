@@ -18,9 +18,10 @@ build/
 db.sqlite3
 /data/
 
-# IDEs
+# IDEs & AI tools
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
