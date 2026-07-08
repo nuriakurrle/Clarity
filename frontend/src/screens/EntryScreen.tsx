@@ -7,11 +7,10 @@
  * auswertet – davon leben später Einblicke & Wochenrückblick.
  *
  * Prompt-Integration:
- * - PromptBubble zeigt eine Vorschlag-Frage an
- * - ReflectionPrompts zeigt 3 Fragen zur Auswahl
- * - PromptConsentBanner fragt um Zustimmung beim ersten Mal
+ * - PromptAssistant kapselt Bubble, Fragen-Liste und Consent-Banner
+ *   (Zustand & API-Calls liegen in usePromptSuggestions)
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,15 +24,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  EditorToolbar,
-  MoodPicker,
-  PromptBubble,
-  ReflectionPrompts,
-  PromptConsentBanner,
-} from '../components/entry';
+import { EditorToolbar, MoodPicker, PromptAssistant } from '../components/entry';
 import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
-import { analyzeEntry, detectPatterns, generatePrompt } from '../services/api';
+import { analyzeEntry, detectPatterns } from '../services/api';
 import { notifyOnNewPatterns } from '../services/notifications';
 import { colors, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -55,52 +48,6 @@ export default function EntryScreen({ onDone }: Props) {
   const [mood, setMood] = useState<MoodLevel | null>(null);
   const [saving, setSaving] = useState(false);
   const [format, setFormat] = useState<EditorFormat>(DEFAULT_FORMAT);
-  
-  // Prompt-Zustand
-  const [promptsVisible, setPromptsVisible] = useState(true);
-  const [promptsLoading, setPromptsLoading] = useState(false);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [currentSuggestion, setCurrentSuggestion] = useState<string>();
-  const [showConsentBanner, setShowConsentBanner] = useState(false);
-
-  // Lade Prompts nach Änderung des Body-Textes
-  useEffect(() => {
-    if (!body.trim() || body.length < 10) {
-      setSuggestions([]);
-      setCurrentSuggestion(undefined);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      loadPrompts(body);
-    }, 800); // debounce
-
-    return () => clearTimeout(timer);
-  }, [body]);
-
-  const loadPrompts = async (text: string) => {
-    if (!promptsVisible) return;
-    
-    setPromptsLoading(true);
-    try {
-      console.log('[EntryScreen] loadPrompts called with text length:', text.length);
-      const result = await generatePrompt({
-        journal_text: text,
-        context: 'editor_open',
-        streak_days: 0,
-      });
-      
-      console.log('[EntryScreen] Prompt result:', result);
-      setSuggestions([result.question]);
-      setCurrentSuggestion(result.question);
-    } catch (e) {
-      console.error('[EntryScreen] Prompt generation failed:', e);
-      // Fallback: Zeige Loading-State trotzdem
-      setSuggestions(['Reflexionsfrage wird geladen...']);
-    } finally {
-      setPromptsLoading(false);
-    }
-  };
 
   const handleDone = async () => {
     const text = [title.trim(), body.trim()].filter(Boolean).join('\n\n');
@@ -144,29 +91,8 @@ export default function EntryScreen({ onDone }: Props) {
     ]);
   };
 
-  const handleRefreshPrompts = () => {
-    if (body.trim()) {
-      loadPrompts(body);
-    }
-  };
-
   return (
     <SafeAreaView style={styles.safe}>
-      {showConsentBanner && (
-        <PromptConsentBanner
-          visible={showConsentBanner}
-          onAccept={() => {
-            setShowConsentBanner(false);
-            setPromptsVisible(true);
-            if (body.trim()) loadPrompts(body);
-          }}
-          onDecline={() => {
-            setShowConsentBanner(false);
-            setPromptsVisible(false);
-          }}
-        />
-      )}
-
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -200,28 +126,7 @@ export default function EntryScreen({ onDone }: Props) {
             textAlignVertical="top"
           />
 
-          {/* Prompt Bubble mit Vorschlag */}
-          {promptsVisible && (
-            <PromptBubble
-              suggestion={currentSuggestion}
-              visible={promptsLoading || !!currentSuggestion}
-              onRequestPreview={() => {
-                if (currentSuggestion) handlePromptSelect(currentSuggestion);
-              }}
-            />
-          )}
-
-          {/* Reflection Prompts Liste */}
-          {promptsVisible && suggestions.length > 0 && (
-            <ReflectionPrompts
-              prompts={suggestions}
-              loading={promptsLoading}
-              mode="reflection"
-              onSelect={handlePromptSelect}
-              onRefresh={handleRefreshPrompts}
-              onClose={() => setPromptsVisible(false)}
-            />
-          )}
+          <PromptAssistant journalText={body} onSelectPrompt={handlePromptSelect} />
         </ScrollView>
 
         <View style={styles.footer}>
