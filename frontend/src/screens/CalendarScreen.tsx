@@ -14,7 +14,7 @@
 import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, ScreenHeader } from '../components';
+import { AuraHeader, Card } from '../components';
 import {
   CalendarGrid,
   EntryCard,
@@ -23,6 +23,7 @@ import {
   MoodPill,
 } from '../components/calendar';
 import { colors, MoodLevel } from '../theme/colors';
+import { serif } from '../theme/typography';
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const MONTHS = [
@@ -105,12 +106,16 @@ export default function CalendarScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <ScrollView
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
       >
-        <ScreenHeader title="Kalender" subtitle="Deine Einträge im Überblick" />
+        <AuraHeader
+          label={`${MONTHS[month]} ${year}`}
+          title="Kalender"
+          subtitle="Deine Einträge im Überblick"
+        />
 
         <View style={styles.spacer20}>
           <MonthNav
@@ -167,7 +172,7 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { paddingHorizontal: 20, paddingTop: 8 },
-  spacer20: { marginTop: 20 },
+  spacer20: { marginTop: 12 },
   spacer16: { marginTop: 16 },
   detailHeaderRow: {
     flexDirection: 'row',
@@ -176,7 +181,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     marginBottom: 12,
   },
-  detailTitle: { fontSize: 18, fontWeight: '700', color: colors.text },
+  detailTitle: { fontFamily: serif, fontSize: 22, fontWeight: '700', color: colors.text },
   emptyCard: { backgroundColor: colors.surfaceAlt, borderWidth: 0, alignItems: 'center' },
   emptyText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
   bottomSpace: { height: 24 },
