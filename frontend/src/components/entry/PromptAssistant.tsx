@@ -20,9 +20,9 @@ type Props = {
 export function PromptAssistant({ journalText, onSelectPrompt }: Props) {
   const {
     visible,
-    loading,
     currentSuggestion,
     showConsentBanner,
+    refresh,
     acceptConsent,
     declineConsent,
   } = usePromptSuggestions(journalText);
@@ -35,16 +35,18 @@ export function PromptAssistant({ journalText, onSelectPrompt }: Props) {
         onDecline={declineConsent}
       />
 
-      {/* Prompt Bubble mit Vorschlag */}
-      {visible && (
-        <PromptBubble
-          suggestion={currentSuggestion}
-          visible={loading || !!currentSuggestion}
-          onRequestPreview={() => {
-            if (currentSuggestion) onSelectPrompt(currentSuggestion);
-          }}
-        />
-      )}
+      {/* Prompt Bubble: Orb ist immer da; Tap ohne geladene Frage holt eine Starter-Frage */}
+      <PromptBubble
+        suggestion={currentSuggestion}
+        visible={visible}
+        onRequestPreview={() => {
+          if (currentSuggestion) {
+            onSelectPrompt(currentSuggestion);
+          } else {
+            refresh();
+          }
+        }}
+      />
     </>
   );
 }

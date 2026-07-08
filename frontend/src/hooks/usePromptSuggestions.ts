@@ -10,6 +10,7 @@ import { generatePrompt } from '../services/api';
 
 const DEBOUNCE_MS = 800;
 const MIN_TEXT_LENGTH = 10;
+const FALLBACK_QUESTION = 'Was beschäftigt dich gerade?';
 
 export function usePromptSuggestions(journalText: string) {
   const [visible, setVisible] = useState(true);
@@ -36,8 +37,9 @@ export function usePromptSuggestions(journalText: string) {
         setCurrentSuggestion(result.question);
       } catch (e) {
         console.error('[usePromptSuggestions] Prompt generation failed:', e);
-        // Fallback: Zeige Loading-State trotzdem
-        setSuggestions(['Reflexionsfrage wird geladen...']);
+        // Fallback: lokale Starter-Frage, damit der Orb auch offline etwas anbietet
+        setSuggestions([FALLBACK_QUESTION]);
+        setCurrentSuggestion(FALLBACK_QUESTION);
       } finally {
         setLoading(false);
       }
@@ -60,10 +62,10 @@ export function usePromptSuggestions(journalText: string) {
     return () => clearTimeout(timer);
   }, [journalText, loadPrompts]);
 
+  // Lädt auch bei leerem Text — das Backend liefert dann eine Starter-Frage
+  // (Blank-Page Prevention beim Tap auf den Orb)
   const refresh = useCallback(() => {
-    if (journalText.trim()) {
-      loadPrompts(journalText);
-    }
+    loadPrompts(journalText);
   }, [journalText, loadPrompts]);
 
   const acceptConsent = useCallback(() => {
