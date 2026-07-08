@@ -38,7 +38,7 @@ export default function App() {
   if (showEntry) {
     screen = <EntryScreen onDone={closeEntry} />;
   } else if (tab === 'home') {
-    screen = <HomeScreen />;
+    screen = <HomeScreen onWrite={openEntry} />;
   } else if (tab === 'search') {
     screen = <SearchScreen />;
   } else if (tab === 'insight') {

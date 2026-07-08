@@ -23,10 +23,13 @@ export function Card({ title, subtitle, children, style }: Props) {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 18,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   title: { fontSize: 17, fontWeight: '700', color: colors.text },
   subtitle: { fontSize: 13, color: colors.textMuted, marginTop: 2 },

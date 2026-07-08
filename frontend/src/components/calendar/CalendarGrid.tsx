@@ -67,10 +67,13 @@ export function CalendarGrid({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 12,
-    borderWidth: 1,
-    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2,
   },
   weekRow: { flexDirection: 'row', marginBottom: 8 },
   weekday: {
