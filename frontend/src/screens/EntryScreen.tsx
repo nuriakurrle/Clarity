@@ -83,16 +83,20 @@ export default function EntryScreen({ onDone }: Props) {
     
     setPromptsLoading(true);
     try {
+      console.log('[EntryScreen] loadPrompts called with text length:', text.length);
       const result = await generatePrompt({
         journal_text: text,
         context: 'editor_open',
         streak_days: 0,
       });
       
+      console.log('[EntryScreen] Prompt result:', result);
       setSuggestions([result.question]);
       setCurrentSuggestion(result.question);
     } catch (e) {
-      // Silently fail - Prompts sind optional
+      console.error('[EntryScreen] Prompt generation failed:', e);
+      // Fallback: Zeige Loading-State trotzdem
+      setSuggestions(['Reflexionsfrage wird geladen...']);
     } finally {
       setPromptsLoading(false);
     }
