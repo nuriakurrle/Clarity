@@ -154,12 +154,13 @@ export default function EntryScreen({ onDone }: Props) {
     <SafeAreaView style={styles.safe}>
       {showConsentBanner && (
         <PromptConsentBanner
+          visible={showConsentBanner}
           onAccept={() => {
             setShowConsentBanner(false);
             setPromptsVisible(true);
             if (body.trim()) loadPrompts(body);
           }}
-          onReject={() => {
+          onDecline={() => {
             setShowConsentBanner(false);
             setPromptsVisible(false);
           }}
