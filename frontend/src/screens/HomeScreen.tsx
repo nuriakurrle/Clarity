@@ -13,8 +13,8 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, SectionLabel } from '../components';
-import { Bullet, QuoteBlock } from '../components/home';
+import { Card, PrivacyNote, SectionLabel } from '../components';
+import { Bullet, QuoteBlock, WelcomeHero } from '../components/home';
 import { Tag } from '../components/insight';
 import {
   Digest,
@@ -36,15 +36,23 @@ function isWithinLastWeek(createdAt?: string): boolean {
   return Date.now() - ts < WEEK_MS;
 }
 
-export default function HomeScreen() {
+type Props = { onWrite?: () => void };
+
+export default function HomeScreen({ onWrite }: Props) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [offline, setOffline] = useState(false);
+  // Sichtbare Hoehe, damit der Begruessungs-Hero den ersten Screen ganz fuellt.
+  const [viewportH, setViewportH] = useState(0);
 
   useEffect(() => {
     fetchLatestDigest()
       .then(setDigest)
-      .catch(() => setOffline(true));
+      .catch((e) => {
+        // Nur bei echtem Verbindungsfehler "offline". Ein HTTP-Fehler wie 404
+        // heisst nur: es gibt noch keinen Wochenrueckblick (kein Backend-Problem).
+        if (!String(e?.message ?? '').includes('HTTP')) setOffline(true);
+      });
     fetchLatestPatterns()
       .then(setPattern)
       .catch(() => {});
@@ -73,11 +81,12 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>Diese Woche</Text>
-          <Text style={styles.bannerSubtitle}>Ein sanfter Rückblick…</Text>
-        </View>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
+      >
+        <WelcomeHero onWrite={onWrite} minHeight={viewportH || undefined} />
 
         <View style={styles.body}>
           <SectionLabel text="Tonverlauf" />
@@ -135,6 +144,8 @@ export default function HomeScreen() {
             </View>
           </View>
         </View>
+
+        <PrivacyNote style={styles.footerPrivacy} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -143,10 +154,8 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, paddingBottom: 24 },
-  banner: { backgroundColor: colors.warmSoft, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 24 },
-  bannerTitle: { fontFamily: serif, fontSize: 32, fontWeight: '700', color: colors.text },
-  bannerSubtitle: { fontSize: 15, color: colors.text, opacity: 0.6, marginTop: 4 },
   body: { paddingHorizontal: 20, paddingTop: 24 },
+  footerPrivacy: { marginTop: 28, marginBottom: 8 },
   spacer32: { marginTop: 32 },
   sectionContent: { marginTop: 12, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
