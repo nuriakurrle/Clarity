@@ -11,6 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { serif } from '../../theme/typography';
+import { PrivacyNote } from '../PrivacyNote';
 
 const WEEKDAYS = [
   'SONNTAG', 'MONTAG', 'DIENSTAG', 'MITTWOCH', 'DONNERSTAG', 'FREITAG', 'SAMSTAG',
@@ -76,10 +77,7 @@ export function WelcomeHero({ onWrite, minHeight }: Props) {
         </Pressable>
       </View>
 
-      <View style={styles.privacy}>
-        <Ionicons name="lock-closed-outline" size={13} color={colors.textMuted} />
-        <Text style={styles.privacyText}>Nur du siehst das. Lokal & verschlüsselt.</Text>
-      </View>
+      <PrivacyNote />
     </View>
   );
 }
@@ -134,6 +132,4 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   buttonPressed: { opacity: 0.85, transform: [{ scale: 0.97 }] },
-  privacy: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  privacyText: { fontSize: 13, color: colors.textMuted },
 });
