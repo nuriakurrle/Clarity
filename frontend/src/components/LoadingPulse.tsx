@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Platform, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../theme/colors';
+
+const NATIVE_DRIVER = Platform.OS !== 'web';
 
 type Props = {
   label: string;
@@ -21,13 +23,13 @@ export function LoadingPulse({ label, color = colors.warm, compact = false }: Pr
               toValue: 1,
               duration: 260,
               easing: Easing.out(Easing.quad),
-              useNativeDriver: true,
+              useNativeDriver: NATIVE_DRIVER,
             }),
             Animated.timing(dot, {
               toValue: 0,
               duration: 260,
               easing: Easing.in(Easing.quad),
-              useNativeDriver: true,
+              useNativeDriver: NATIVE_DRIVER,
             }),
           ]),
         ),

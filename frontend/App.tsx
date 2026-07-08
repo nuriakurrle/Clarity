@@ -54,7 +54,8 @@ export default function App() {
 
         <View style={styles.screen}>{screen}</View>
 
-        <BottomNav active={showEntry ? 'entry' : tab} onChange={changeTab} onPressAdd={openEntry} />
+        {/* Beim Schreiben ausgeblendet: Fokus-Modus ohne Tabs und redundanten „+"-FAB */}
+        {!showEntry && <BottomNav active={tab} onChange={changeTab} onPressAdd={openEntry} />}
       </View>
     </SafeAreaProvider>
   );

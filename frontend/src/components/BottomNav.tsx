@@ -46,7 +46,7 @@ export function BottomNav({ active, onChange, onPressAdd }: Props) {
         ))}
       </View>
 
-      <View style={styles.fabWrap} pointerEvents="box-none">
+      <View style={styles.fabWrap}>
         <TouchableOpacity style={styles.fab} onPress={onPressAdd} activeOpacity={0.85}>
           <Ionicons name="add" size={26} color="#fff" />
         </TouchableOpacity>
@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
   bar: { flexDirection: 'row', alignItems: 'center', paddingTop: 10, paddingBottom: 24 },
   tab: { flex: 1, alignItems: 'center', gap: 4 },
   fabSlot: { flex: 1 },
-  fabWrap: { position: 'absolute', top: -22, left: 0, right: 0, alignItems: 'center', gap: 6 },
+  fabWrap: { position: 'absolute', top: -22, left: 0, right: 0, alignItems: 'center', gap: 6, pointerEvents: 'box-none' },
   fab: {
     width: 56,
     height: 56,

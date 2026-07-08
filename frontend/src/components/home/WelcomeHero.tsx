@@ -6,12 +6,14 @@
  * Datenschutz-Zeile. Der bestehende Home-Content folgt darunter beim Scrollen.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Dimensions, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { serif } from '../../theme/typography';
 import { PrivacyNote } from '../PrivacyNote';
+
+const NATIVE_DRIVER = Platform.OS !== 'web';
 
 const WEEKDAYS = [
   'SONNTAG', 'MONTAG', 'DIENSTAG', 'MITTWOCH', 'DONNERSTAG', 'FREITAG', 'SAMSTAG',
@@ -36,8 +38,8 @@ export function WelcomeHero({ onWrite, minHeight }: Props) {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(breath, { toValue: 1, duration: 3200, useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 0, duration: 3200, useNativeDriver: true }),
+        Animated.timing(breath, { toValue: 1, duration: 3200, useNativeDriver: NATIVE_DRIVER }),
+        Animated.timing(breath, { toValue: 0, duration: 3200, useNativeDriver: NATIVE_DRIVER }),
       ]),
     );
     loop.start();
