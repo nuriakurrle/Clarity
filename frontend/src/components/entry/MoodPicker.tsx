@@ -1,26 +1,18 @@
 /**
  * Stimmungsauswahl für den Eintrag (Eintrag schreiben).
  *
- * Fünf Icons entlang der App-Stimmungsskala (Schwer → Sehr gut), passend
- * zur Valence-Skala des Sentiment-Agenten. Die Auswahl ist optional und
- * wird beim Speichern als Zusatz-Kontext an die Analyse übergeben.
+ * Fünf Farbpunkte entlang der App-Stimmungsskala (Schwer → Sehr gut), passend
+ * zur Valence-Skala des Sentiment-Agenten – bewusst reduzierter als Emojis,
+ * damit der Footer ruhig bleibt. Die Auswahl ist optional und wird beim
+ * Speichern als Zusatz-Kontext an die Analyse übergeben.
  * Erneutes Antippen hebt die Auswahl wieder auf.
  */
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, moodColor, moodLabel, MoodLevel } from '../../theme/colors';
 
-type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
-
 // Reihenfolge: negativ → positiv (wie eine Skala von links nach rechts)
-const MOODS: { level: MoodLevel; icon: IconName; iconActive: IconName }[] = [
-  { level: 'bad', icon: 'emoticon-cry-outline', iconActive: 'emoticon-cry' },
-  { level: 'low', icon: 'emoticon-sad-outline', iconActive: 'emoticon-sad' },
-  { level: 'neutral', icon: 'emoticon-neutral-outline', iconActive: 'emoticon-neutral' },
-  { level: 'good', icon: 'emoticon-happy-outline', iconActive: 'emoticon-happy' },
-  { level: 'great', icon: 'emoticon-excited-outline', iconActive: 'emoticon-excited' },
-];
+const MOODS: MoodLevel[] = ['bad', 'low', 'neutral', 'good', 'great'];
 
 type Props = {
   label?: string;
@@ -28,24 +20,26 @@ type Props = {
   onChange: (mood: MoodLevel | null) => void;
 };
 
-export function MoodPicker({ label = 'Stimmung:', value, onChange }: Props) {
+export function MoodPicker({ label, value, onChange }: Props) {
   return (
     <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      {MOODS.map(({ level, icon, iconActive }) => {
+      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {MOODS.map((level) => {
         const active = level === value;
         return (
           <TouchableOpacity
             key={level}
-            style={[styles.circle, active && { borderColor: moodColor[level] }]}
+            style={styles.dotHit}
             onPress={() => onChange(active ? null : level)}
             activeOpacity={0.7}
             accessibilityLabel={`Stimmung: ${moodLabel[level]}`}
           >
-            <MaterialCommunityIcons
-              name={active ? iconActive : icon}
-              size={20}
-              color={active ? moodColor[level] : colors.textMuted}
+            <View
+              style={[
+                styles.dot,
+                { backgroundColor: moodColor[level] },
+                active ? styles.dotActive : styles.dotInactive,
+              ]}
             />
           </TouchableOpacity>
         );
@@ -55,16 +49,30 @@ export function MoodPicker({ label = 'Stimmung:', value, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  label: { fontSize: 12, color: colors.textMuted, marginRight: 2 },
-  circle: {
+  row: { flexDirection: 'row', alignItems: 'center', gap: 2, flexWrap: 'wrap' },
+  label: { fontSize: 12, color: colors.textMuted, marginRight: 6 },
+  // Punkt klein, Touch-Fläche groß genug (34px)
+  dotHit: {
     width: 34,
     height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.warmSofter,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  dot: {
+    borderRadius: 999,
+  },
+  dotInactive: {
+    width: 14,
+    height: 14,
+    opacity: 0.35,
+  },
+  dotActive: {
+    width: 22,
+    height: 22,
+    opacity: 1,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: colors.surface,
+    // weicher Ring, damit die Auswahl auch ohne Emoji klar erkennbar ist
+    boxShadow: '0px 0px 0px 2px rgba(31,36,33,0.25)',
   },
 });

@@ -1,16 +1,21 @@
 /**
  * PromptBubble – sanft pulsierender Gradient-Orb als Einstieg zu den Prompts.
  *
- * Design: weiche Kugel (Teal/Rosa) mit warmer Aura (Orange/Gelb), die im
- * Atem-Rhythmus pulsiert; ein Licht-Schimmer wandert langsam über die Kugel.
- * Nutzt native CSS-Gradients (experimental_backgroundImage, RN 0.79+) –
- * bewusst ohne zusätzliche Libraries, damit package.json unangetastet bleibt.
+ * Design: weiche Kugel in der warmen App-Palette (Peach/Amber) mit passender
+ * Aura (Orange/Gelb), die im Atem-Rhythmus pulsiert und über einem weichen
+ * Bodenschatten schwebt; ein Licht-Schimmer wandert langsam über die Kugel.
+ * Die Gradients sind mit react-native-svg gebaut, weil das sowohl nativ als
+ * auch im Browser rendert (experimental_backgroundImage greift nur nativ).
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet, Text } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text } from 'react-native';
+import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { colors } from '../../theme/colors';
 import { serif } from '../../theme/typography';
+
+// Auf Web gibt es kein natives Animationsmodul – false vermeidet die Warnung,
+// funktional identisch (RN Web animiert ohnehin in JS)
+const NATIVE_DRIVER = Platform.OS !== 'web';
 
 type Props = {
   suggestion?: string;
@@ -24,9 +29,12 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
   const tipOpacity = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(0)).current;
   const spin = useRef(new Animated.Value(0)).current;
+  const float = useRef(new Animated.Value(0)).current;
+  const drift = useRef(new Animated.Value(0)).current;
+  const pressScale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    Animated.timing(opacity, { toValue: visible ? 1 : 0, duration: 300, useNativeDriver: true }).start();
+    Animated.timing(opacity, { toValue: visible ? 1 : 0, duration: 300, useNativeDriver: NATIVE_DRIVER }).start();
   }, [visible, opacity]);
 
   // Atem-Animation: Aura und Orb schwellen sanft an und ab (~5s Zyklus)
@@ -37,19 +45,65 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
           toValue: 1,
           duration: 2600,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: NATIVE_DRIVER,
         }),
         Animated.timing(breathe, {
           toValue: 0,
           duration: 2600,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: NATIVE_DRIVER,
         }),
       ]),
     );
     loop.start();
     return () => loop.stop();
   }, [breathe]);
+
+  // Schwebe-Animation: Orb samt Aura driftet langsam auf und ab (~6.5s Zyklus),
+  // bewusst asynchron zum Atem-Rhythmus, damit die Bewegung organisch wirkt
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(float, {
+          toValue: 1,
+          duration: 3200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: NATIVE_DRIVER,
+        }),
+        Animated.timing(float, {
+          toValue: 0,
+          duration: 3200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: NATIVE_DRIVER,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [float]);
+
+  // Seitliches Driften (~8.5s Zyklus): kombiniert mit dem vertikalen Schweben
+  // entsteht eine leichte Achterbahn statt einer reinen Auf-Ab-Bewegung
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(drift, {
+          toValue: 1,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: NATIVE_DRIVER,
+        }),
+        Animated.timing(drift, {
+          toValue: 0,
+          duration: 4200,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: NATIVE_DRIVER,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [drift]);
 
   // Licht-Schimmer wandert langsam über die Kugel (eine Runde = 14s)
   useEffect(() => {
@@ -58,7 +112,7 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
         toValue: 1,
         duration: 14000,
         easing: Easing.linear,
-        useNativeDriver: true,
+        useNativeDriver: NATIVE_DRIVER,
       }),
     );
     loop.start();
@@ -70,9 +124,9 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
     if (!suggestion) return;
     tipOpacity.setValue(0);
     Animated.sequence([
-      Animated.timing(tipOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.timing(tipOpacity, { toValue: 1, duration: 220, useNativeDriver: NATIVE_DRIVER }),
       Animated.delay(4200),
-      Animated.timing(tipOpacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+      Animated.timing(tipOpacity, { toValue: 0, duration: 400, useNativeDriver: NATIVE_DRIVER }),
     ]).start();
   }, [suggestion, tipOpacity]);
 
@@ -82,22 +136,82 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
   const auraOpacity = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
   const orbScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
   const shimmerRotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [4, -7] });
+  const driftX = drift.interpolate({ inputRange: [0, 1], outputRange: [-3, 3] });
+  // Bodenschatten läuft gegenphasig: Orb oben → Schatten kleiner und blasser
+  const shadowScale = float.interpolate({ inputRange: [0, 1], outputRange: [1, 0.68] });
+  const shadowOpacity = float.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.12] });
+
+  // Touch-Feedback: beim Antippen kurz „einatmen", per Spring zurück
+  const pressIn = () =>
+    Animated.spring(pressScale, { toValue: 0.93, speed: 40, useNativeDriver: NATIVE_DRIVER }).start();
+  const pressOut = () =>
+    Animated.spring(pressScale, { toValue: 1, friction: 4, useNativeDriver: NATIVE_DRIVER }).start();
 
   return (
-    <Animated.View pointerEvents={'auto'} style={[styles.container, { opacity: opacity }]}>
+    <Animated.View style={[styles.container, { opacity: opacity }]}>
       <Animated.View
-        pointerEvents="none"
-        style={[styles.aura, { opacity: auraOpacity, transform: [{ scale: auraScale }] }]}
+        style={[styles.groundShadow, { opacity: shadowOpacity, transform: [{ scaleX: shadowScale }] }]}
       />
-      <Animated.View style={[styles.previewTip, { opacity: tipOpacity }]} pointerEvents="none">
-        {suggestion && <Text numberOfLines={2} ellipsizeMode="tail" style={styles.previewText}>{suggestion}</Text>}
-      </Animated.View>
-      <Pressable onPress={() => onRequestPreview && onRequestPreview()} hitSlop={8}>
-        <Animated.View style={[styles.orb, { transform: [{ scale: orbScale }] }]}>
-          <Animated.View style={[styles.orbShimmer, { transform: [{ rotate: shimmerRotate }] }]} />
-          <Ionicons name="sparkles" size={14} color="rgba(255,255,255,0.85)" style={styles.icon} />
+      <Animated.View style={[styles.floatWrap, { transform: [{ translateY: floatY }, { translateX: driftX }] }]}>
+        <Animated.View
+          style={[styles.aura, { opacity: auraOpacity, transform: [{ scale: auraScale }] }]}
+        >
+          <Svg width={AURA_SIZE} height={AURA_SIZE}>
+            <Defs>
+              <RadialGradient id="pbAura" cx="50%" cy="50%" r="50%">
+                <Stop offset="0%" stopColor="#FF9D5C" stopOpacity={0.5} />
+                <Stop offset="42%" stopColor="#FFC857" stopOpacity={0.28} />
+                <Stop offset="70%" stopColor="#FFC857" stopOpacity={0.1} />
+                {/* Schon vor dem Kreisrand voll transparent – vermeidet eine
+                    sichtbare Kante durch Rundungsartefakte beim Rendern */}
+                <Stop offset="92%" stopColor="#FFC857" stopOpacity={0} />
+                <Stop offset="100%" stopColor="#FFC857" stopOpacity={0} />
+              </RadialGradient>
+            </Defs>
+            <Circle cx={AURA_SIZE / 2} cy={AURA_SIZE / 2} r={AURA_SIZE / 2} fill="url(#pbAura)" />
+          </Svg>
         </Animated.View>
-      </Pressable>
+        <Pressable
+          onPress={() => onRequestPreview && onRequestPreview()}
+          onPressIn={pressIn}
+          onPressOut={pressOut}
+          hitSlop={8}
+        >
+          <Animated.View style={[styles.orb, { transform: [{ scale: orbScale }, { scale: pressScale }] }]}>
+            <Svg width={ORB_SIZE} height={ORB_SIZE} style={StyleSheet.absoluteFill}>
+              <Defs>
+                <RadialGradient id="pbBody" cx="68%" cy="45%" r="88%">
+                  <Stop offset="0%" stopColor="#FFEBD6" />
+                  <Stop offset="55%" stopColor="#F3CDB0" />
+                  <Stop offset="90%" stopColor="#E5A17C" />
+                  <Stop offset="100%" stopColor="#D98D62" />
+                </RadialGradient>
+              </Defs>
+              <Circle cx={ORB_SIZE / 2} cy={ORB_SIZE / 2} r={ORB_SIZE / 2} fill="url(#pbBody)" />
+            </Svg>
+            <Animated.View style={[styles.orbShimmer, { transform: [{ rotate: shimmerRotate }] }]}>
+              <Svg width={ORB_SIZE} height={ORB_SIZE}>
+                <Defs>
+                  <RadialGradient id="pbShine" cx="50%" cy="50%" r="50%">
+                    <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.9} />
+                    <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0} />
+                  </RadialGradient>
+                  <RadialGradient id="pbGlow" cx="50%" cy="50%" r="50%">
+                    <Stop offset="0%" stopColor="#FF9E80" stopOpacity={0.8} />
+                    <Stop offset="100%" stopColor="#FF9E80" stopOpacity={0} />
+                  </RadialGradient>
+                </Defs>
+                <Circle cx={ORB_SIZE * 0.3} cy={ORB_SIZE * 0.28} r={ORB_SIZE * 0.42} fill="url(#pbShine)" />
+                <Circle cx={ORB_SIZE * 0.26} cy={ORB_SIZE * 0.64} r={ORB_SIZE * 0.55} fill="url(#pbGlow)" />
+              </Svg>
+            </Animated.View>
+          </Animated.View>
+        </Pressable>
+      </Animated.View>
+      <Animated.View style={[styles.previewTip, { opacity: tipOpacity }]}>
+        {suggestion ? <Text numberOfLines={2} ellipsizeMode="tail" style={styles.previewText}>{suggestion}</Text> : null}
+      </Animated.View>
     </Animated.View>
   );
 }
@@ -116,16 +230,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  floatWrap: {
+    width: AURA_SIZE,
+    height: AURA_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // Weicher Bodenschatten unter dem Orb – verankert die Schwebe-Bewegung,
+  // bleibt selbst am Boden, während der Orb darüber auf- und absteigt.
+  // boxShadow statt experimental_backgroundImage, damit er auch auf Web rendert.
+  groundShadow: {
+    position: 'absolute',
+    pointerEvents: 'none',
+    bottom: 4,
+    width: ORB_SIZE * 0.55,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: 'rgba(107,79,58,0.22)',
+    boxShadow: '0px 1px 10px 5px rgba(107,79,58,0.22)',
+  },
   // Warme Aura: Orange/Gelb, läuft weich nach außen aus
   aura: {
     position: 'absolute',
+    pointerEvents: 'none',
     width: AURA_SIZE,
     height: AURA_SIZE,
-    borderRadius: AURA_SIZE / 2,
-    experimental_backgroundImage:
-      'radial-gradient(circle, rgba(255,157,92,0.55) 0%, rgba(255,200,87,0.30) 45%, rgba(255,200,87,0) 72%)',
   },
-  // Kugel: Teal-Körper mit rosa Rand (Fallback-Farbe, falls Gradient nicht greift)
+  // Kugel: Teal-Körper mit rosa Rand; der Gradient liegt als SVG darin
   orb: {
     width: ORB_SIZE,
     height: ORB_SIZE,
@@ -133,9 +264,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#8FB8BA',
-    experimental_backgroundImage:
-      'radial-gradient(circle at 68% 45%, #9CC3C5 0%, #8FB8BA 55%, #F4B8C8 90%, #FBD4DF 100%)',
   },
   // Wandernder Schimmer: weißes Highlight + orange-rosa Glühen, off-center,
   // rotiert langsam und lässt die Kugel dadurch „lebendig" wirken
@@ -143,13 +271,10 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: ORB_SIZE,
     height: ORB_SIZE,
-    borderRadius: ORB_SIZE / 2,
-    experimental_backgroundImage:
-      'radial-gradient(circle at 30% 28%, rgba(255,255,255,0.9) 0%, rgba(255,255,255,0) 42%), radial-gradient(circle at 26% 64%, rgba(255,158,128,0.8) 0%, rgba(255,158,128,0) 55%)',
   },
-  icon: { opacity: 0.9 },
   previewTip: {
     position: 'absolute',
+    pointerEvents: 'none',
     right: 0,
     bottom: AURA_SIZE - 16,
     width: 280,

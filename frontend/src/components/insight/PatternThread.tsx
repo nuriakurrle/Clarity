@@ -3,9 +3,11 @@
  * Punkten, die sich beim Öffnen selbst zeichnet (Metapher für verbundene Muster).
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated } from 'react-native';
+import { Animated, Platform } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { colors } from '../../theme/colors';
+
+const NATIVE_DRIVER = Platform.OS !== 'web';
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -25,8 +27,8 @@ export function PatternThread() {
 
   useEffect(() => {
     Animated.sequence([
-      Animated.timing(draw, { toValue: 0, duration: 1100, useNativeDriver: true }),
-      Animated.timing(dots, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.timing(draw, { toValue: 0, duration: 1100, useNativeDriver: NATIVE_DRIVER }),
+      Animated.timing(dots, { toValue: 1, duration: 300, useNativeDriver: NATIVE_DRIVER }),
     ]).start();
   }, [draw, dots]);
 
