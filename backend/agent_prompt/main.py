@@ -19,8 +19,14 @@ except ImportError:
     def init_db():
         logging.warning("⚠️  Database module not available (local dev mode)")
 
-from backend.agent_prompt.routes import router as prompt_router
-from backend.agent_prompt.routes import set_ollama_config
+# Import routes - use relative import for Docker compatibility
+try:
+    from routes import router as prompt_router
+    from routes import set_ollama_config
+except ImportError:
+    # Fallback for local development
+    from backend.agent_prompt.routes import router as prompt_router
+    from backend.agent_prompt.routes import set_ollama_config
 
 # Logging setup
 logging.basicConfig(
