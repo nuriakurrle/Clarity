@@ -9,15 +9,28 @@ from typing import Optional
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from backend.agent_prompt.schemas import (
-    PromptRequest,
-    PromptResponse,
-    StarterPromptRequest,
-    WeeklyReflectionRequest,
-    HealthResponse,
-)
-from backend.agent_prompt.tools.prompt_library import get_prompt_by_category, PROMPT_LIBRARY
-from backend.agent_prompt.tools.context_analyzer import ContextAnalyzer
+# Import schemas and tools - use relative import for Docker compatibility
+try:
+    from schemas import (
+        PromptRequest,
+        PromptResponse,
+        StarterPromptRequest,
+        WeeklyReflectionRequest,
+        HealthResponse,
+    )
+    from tools.prompt_library import get_prompt_by_category, PROMPT_LIBRARY
+    from tools.context_analyzer import ContextAnalyzer
+except ImportError:
+    # Fallback for local development
+    from backend.agent_prompt.schemas import (
+        PromptRequest,
+        PromptResponse,
+        StarterPromptRequest,
+        WeeklyReflectionRequest,
+        HealthResponse,
+    )
+    from backend.agent_prompt.tools.prompt_library import get_prompt_by_category, PROMPT_LIBRARY
+    from backend.agent_prompt.tools.context_analyzer import ContextAnalyzer
 
 logger = logging.getLogger(__name__)
 
