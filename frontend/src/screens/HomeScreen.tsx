@@ -13,7 +13,7 @@
 import React, { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, SectionLabel } from '../components';
+import { Card, PrivacyNote, SectionLabel } from '../components';
 import { Bullet, QuoteBlock, WelcomeHero } from '../components/home';
 import { Tag } from '../components/insight';
 import {
@@ -144,6 +144,8 @@ export default function HomeScreen({ onWrite }: Props) {
             </View>
           </View>
         </View>
+
+        <PrivacyNote style={styles.footerPrivacy} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -153,6 +155,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, paddingBottom: 24 },
   body: { paddingHorizontal: 20, paddingTop: 24 },
+  footerPrivacy: { marginTop: 28, marginBottom: 8 },
   spacer32: { marginTop: 32 },
   sectionContent: { marginTop: 12, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
