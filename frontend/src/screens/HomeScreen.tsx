@@ -13,14 +13,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Card, PrivacyNote, SectionLabel } from '../components';
+import { Card, HighlightText, PrivacyNote, SectionLabel } from '../components';
 import { Bullet, QuoteBlock, MoodMirrorBlob } from '../components/home';
 import { Tag } from '../components/insight';
 import {
   Digest,
   EntryRecord,
+  KeywordItem,
   PatternResult,
   fetchEntries,
+  fetchKeywords,
   fetchLatestDigest,
   fetchLatestPatterns,
 } from '../services/api';
@@ -45,6 +47,7 @@ export default function HomeScreen({ onWrite }: Props) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [pattern, setPattern] = useState<PatternResult | null>(null);
   const [entries, setEntries] = useState<EntryRecord[]>([]);
+  const [keywords, setKeywords] = useState<KeywordItem[]>([]);
   const [offline, setOffline] = useState(false);
   // Sichtbare Hoehe, damit der Begruessungs-Hero den ersten Screen ganz fuellt.
   const [viewportH, setViewportH] = useState(0);
@@ -69,6 +72,10 @@ export default function HomeScreen({ onWrite }: Props) {
       });
     fetchLatestPatterns()
       .then(setPattern)
+      .catch(() => {});
+    // Häufigste Wörter der Woche – dienen als „wichtige" Begriffe zum Hervorheben.
+    fetchKeywords(7, 10)
+      .then((res) => setKeywords(res.keywords))
       .catch(() => {});
     // Häufigste Stimmung der letzten 7 Tage bestimmen (gleiche Logik wie im
     // MoodMirrorBlob: pro Eintrag, valence → 5-Stufen-Level).
@@ -129,8 +136,15 @@ export default function HomeScreen({ onWrite }: Props) {
         }),
       ].filter((item, i, arr) => arr.findIndex((x) => x.label === item.label) === i)
     : [];
-  const themeCount = activePattern?.recurring_themes?.length ?? 0;
   const hasPattern = observations.length > 0 || tagItems.length > 0;
+
+  // „Wichtige" Wörter zum Fett-Hervorheben: Schlagwörter + wiederkehrende
+  // Themen/Personen (klein geschrieben, Beugungen werden tolerant gematcht).
+  const highlightTerms = [
+    ...keywords.map((k) => k.word),
+    ...(activePattern?.recurring_themes ?? []),
+    ...(activePattern?.recurring_people ?? []),
+  ].map((w) => w.toLowerCase());
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -153,7 +167,7 @@ export default function HomeScreen({ onWrite }: Props) {
               <QuoteBlock text={digest.summary} accentColor={weekAccent} typingActive={typeSummary} />
               {digest.highlights.map((h, i) => (
                 <View key={i} style={styles.bulletSpacing}>
-                  <Bullet text={h} />
+                  <Bullet text={<HighlightText text={h} terms={highlightTerms} />} />
                 </View>
               ))}
             </View>
@@ -169,15 +183,15 @@ export default function HomeScreen({ onWrite }: Props) {
             <SectionLabel
               text="Themen, die wiederkehren"
               emphasis={
-                hasPattern && themeCount > 0
-                  ? `${themeCount} ${themeCount === 1 ? 'Thema' : 'Themen'}`
+                hasPattern && tagItems.length > 0
+                  ? `${tagItems.length} ${tagItems.length === 1 ? 'Thema' : 'Themen'}`
                   : undefined
               }
             />
             {hasPattern ? (
               <Card style={styles.themeCard}>
                 {observations.map((o, i) => (
-                  <Bullet key={i} text={o} />
+                  <Bullet key={i} text={<HighlightText text={o} terms={highlightTerms} />} />
                 ))}
                 {tagItems.length > 0 ? (
                   <View style={styles.pillWrap}>
