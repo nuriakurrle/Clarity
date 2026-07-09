@@ -1,4 +1,4 @@
-/** Suchfeld im Pfirsich-Look mit Lupe + Clear-Button (Verlauf-Screen). */
+/** Neutrales Suchfeld mit Lupe + Clear-Button (Verlauf-Screen). */
 import React from 'react';
 import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: colors.warmSoft,
+    backgroundColor: colors.surfaceAlt,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 12,
