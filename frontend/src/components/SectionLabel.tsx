@@ -20,18 +20,20 @@ export function SectionLabel({ text, emphasis }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap' },
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline' },
+  // Deutlich als Abschnittsüberschrift lesbar: größer, fett, reines Schwarz –
+  // passend zum Weiß/Schwarz-Schema mit Mood-Farb-Akzenten.
   text: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    color: colors.warm,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+    color: '#000000',
     textTransform: 'uppercase',
   },
   emphasis: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     letterSpacing: 1,
-    color: colors.warm,
+    color: colors.textMuted,
   },
 });

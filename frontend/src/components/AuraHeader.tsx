@@ -1,10 +1,11 @@
 /**
- * AuraHeader – weicher, warmer Kopfbereich mit Aura-Farbverlauf.
+ * AuraHeader – ruhiger Kopfbereich auf reinem Weiß.
  * Kleines Label ("DIESE WOCHE"), großer Serifen-Titel, ruhiger Untertitel.
+ * Bewusst OHNE Farbverlauf: Farbe gehört im neuen Design ausschließlich den
+ * Mood-Bubbles/-Blobs, der Rahmen bleibt Weiß/Schwarz (wie HomeScreen).
  */
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -15,12 +16,6 @@ export function AuraHeader({ label, title, subtitle }: Props) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.wrap, { paddingTop: insets.top + 4 }]}>
-      <LinearGradient
-        colors={[colors.warmSoft, colors.primarySoft, colors.bg]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <Text style={styles.title}>{title}</Text>
       {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
@@ -30,6 +25,7 @@ export function AuraHeader({ label, title, subtitle }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
+    backgroundColor: colors.bg, // reines Weiß, wie der Rest des Screens
     paddingHorizontal: 20,
     paddingBottom: 22,
     marginHorizontal: -20, // randlos bis zum Bildschirmrand
@@ -46,7 +42,7 @@ const styles = StyleSheet.create({
     fontFamily: serif,
     fontSize: 32,
     fontWeight: '700',
-    color: colors.text,
+    color: '#000000',
     marginTop: 4,
   },
   subtitle: {

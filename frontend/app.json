@@ -10,7 +10,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#F7F6F3"
+        "backgroundColor": "#FFFFFF"
       }
     },
     "web": {
@@ -23,7 +23,7 @@
         "expo-splash-screen",
         {
           "resizeMode": "contain",
-          "backgroundColor": "#F7F6F3"
+          "backgroundColor": "#FFFFFF"
         }
       ]
     ]

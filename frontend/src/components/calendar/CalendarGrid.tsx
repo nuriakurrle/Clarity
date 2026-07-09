@@ -1,28 +1,36 @@
 /**
- * Monatsgitter: Wochentage + Tageszellen mit Stimmungs-Punkt.
- * Rein darstellend – die Zellen (`cells`) und Stimmungsdaten kommen vom Screen.
+ * Monatsgitter im Bubble-Design: Tageszahl klein oben, darunter eine
+ * Mini-Mood-Bubble, deren Größe die Intensität codiert (12–26 px) und
+ * deren Farbe die Stimmung. Tage ohne Eintrag: kleiner blasser Punkt.
+ * Rein darstellend – die Zellen (`cells`) und Tagesdaten kommen vom Screen.
  */
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { colors, MoodLevel } from '../../theme/colors';
-import { MoodDot } from './MoodDot';
+import { colors } from '../../theme/colors';
+import { moodColor, MoodLevel, EMPTY_DAY_COLOR } from '../../theme/moodColors';
+import { BubbleDay } from './BubbleDay';
+
+type DayCellData = { level: MoodLevel; intensity: number };
 
 type Props = {
   weekdays: string[];
   /** Zellen Mo-basiert; `null` = leere Zelle (Monatsrand). */
   cells: (number | null)[];
-  /** Tag -> Stimmung, falls an dem Tag ein Eintrag existiert. */
-  moodByDay: Record<number, MoodLevel>;
+  /** Tag -> Stimmung + Intensität, falls an dem Tag Einträge existieren. */
+  dayData: Record<number, DayCellData>;
   selected: number | null;
   onSelect: (day: number) => void;
+  /** Heutige Tageszahl, falls der angezeigte Monat der aktuelle ist. */
+  today?: number | null;
 };
 
 export function CalendarGrid({
   weekdays,
   cells,
-  moodByDay,
+  dayData,
   selected,
   onSelect,
+  today = null,
 }: Props) {
   return (
     <View style={styles.card}>
@@ -39,22 +47,40 @@ export function CalendarGrid({
           if (day == null) {
             return <View key={`e-${i}`} style={styles.cell} />;
           }
-          const mood = moodByDay[day];
+          const data = dayData[day];
           const isSelected = day === selected;
+          const size = data ? 12 + Math.min(1, Math.max(0, data.intensity)) * 14 : 0; // 12–26 px
           return (
             <TouchableOpacity
               key={day}
               style={styles.cell}
-              activeOpacity={mood ? 0.6 : 1}
+              activeOpacity={0.6}
               onPress={() => onSelect(day)}
+              accessibilityRole="button"
+              accessibilityLabel={`${day}.`}
             >
-              <View style={[styles.circle, isSelected && styles.circleSelected]}>
-                <Text style={[styles.dayText, isSelected && styles.dayTextSelected]}>
-                  {day}
-                </Text>
-              </View>
-              <View style={styles.dotSlot}>
-                {mood ? <MoodDot level={mood} /> : null}
+              <Text
+                style={[
+                  styles.dayText,
+                  day === today && styles.dayTextToday,
+                  isSelected && styles.dayTextSelected,
+                ]}
+              >
+                {day}
+              </Text>
+              <View style={styles.bubbleSlot}>
+                {data ? (
+                  <BubbleDay
+                    color={moodColor[data.level]}
+                    size={size}
+                    day={day}
+                    selected={isSelected}
+                    showLabel={false}
+                    onPress={() => onSelect(day)}
+                  />
+                ) : (
+                  <View style={styles.emptyDot} />
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -90,15 +116,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  circle: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  dayText: { fontSize: 12, color: colors.textMuted },
+  dayTextToday: { fontWeight: '700', color: colors.text },
+  dayTextSelected: { fontWeight: '700', color: colors.text },
+  bubbleSlot: {
+    height: 30,
+    marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  circleSelected: { backgroundColor: colors.primary },
-  dayText: { fontSize: 15, color: colors.text },
-  dayTextSelected: { color: '#fff', fontWeight: '700' },
-  dotSlot: { height: 8, marginTop: 2, justifyContent: 'center' },
+  emptyDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: EMPTY_DAY_COLOR,
+  },
 });
