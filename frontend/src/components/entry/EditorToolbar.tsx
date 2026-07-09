@@ -85,6 +85,8 @@ export function EditorToolbar({ value, onChange }: Props) {
       horizontal
       showsHorizontalScrollIndicator={false}
       contentContainerStyle={styles.row}
+      // Taps sollen die Buttons treffen, nicht erst die Tastatur schließen
+      keyboardShouldPersistTaps="always"
     >
       {ALIGNMENTS.map((a) => (
         <TouchableOpacity
@@ -156,13 +158,12 @@ export function EditorToolbar({ value, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Trennlinien/Karte übernimmt der umgebende Screen (formatPanel)
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
     paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   iconBtn: { alignItems: 'center', justifyContent: 'center', minWidth: 22 },
   divider: { width: 1, height: 20, backgroundColor: colors.border },
