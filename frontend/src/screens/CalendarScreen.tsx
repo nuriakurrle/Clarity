@@ -15,11 +15,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LayoutAnimation,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
-  UIManager,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -49,10 +47,6 @@ import { MoodLevel, normalizeIntensity, valenceToMoodLevel } from '../theme/mood
 import { serif } from '../theme/typography';
 import { dayMoodLine } from '../utils/moodPrompts';
 import { TypewriterText } from '../components/home/TypewriterText';
-
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const MONTHS = [

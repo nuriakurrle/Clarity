@@ -35,8 +35,12 @@ import { EditorFormat, formatToStyle } from './EditorToolbar';
 export type Block = { id: string; text: string; format: EditorFormat };
 
 let seq = 0;
-/** Eindeutige Block-ID (nur innerhalb der Session relevant). */
-export const newBlockId = () => `block-${(seq += 1)}`;
+/**
+ * Eindeutige Block-ID. Der Zeitstempel-Anteil hält sie auch dann eindeutig,
+ * wenn `seq` durch einen Modul-Reload (Fast Refresh) zurückspringt, während
+ * der Block-State im Screen mit alten IDs weiterlebt.
+ */
+export const newBlockId = () => `block-${Date.now().toString(36)}-${(seq += 1)}`;
 
 /** Fokus-Steuerung für den Screen (z. B. Enter im Titel → erste Zeile). */
 export type BlockEditorHandle = {

@@ -180,7 +180,7 @@ PROMPT_LIBRARY = {
                 "Welche Bewegung tut dir gut?",
                 "Was nährst du heute mit Bewusstsein?",
                 "Wann spürst du dich vitaler?",
-                "Welche Selbstfürsorge neglecting du?",
+                "Welche Selbstfürsorge vernachlässigst du gerade?",
             ],
             "en": [
                 "How is your body today?",

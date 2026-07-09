@@ -70,7 +70,8 @@ export type SentimentAnalysis = {
 
 export type AnalyzeResult = {
   entry_id: number;
-  analysis: SentimentAnalysis;
+  /** Die Analyse läuft im Backend als Hintergrund-Task ("queued"). */
+  status: string;
 };
 
 export type DailyMood = {
@@ -222,7 +223,7 @@ export function detectPatterns(days = 7): Promise<PatternResult> {
  *  Die Antwort enthält einen Grund, warum diese Frage gewählt wurde (Explainability). */
 export function generatePrompt(params: {
   journal_text: string;
-  context?: 'editor_open' | 'post_entry' | 'home_screen' | 'weekly';
+  context?: 'editor_open' | 'post_entry' | 'home_screen' | 'weekly' | 'morning' | 'evening';
   streak_days?: number;
 }): Promise<PromptResponse> {
   return request<PromptResponse>(

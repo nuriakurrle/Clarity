@@ -26,7 +26,7 @@ export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt
     visible,
     currentSuggestion,
     showConsentBanner,
-    refresh,
+    next,
     acceptConsent,
     declineConsent,
   } = usePromptSuggestions(journalText);
@@ -39,19 +39,17 @@ export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt
         onDecline={declineConsent}
       />
 
-      {/* Prompt Bubble: Orb ist immer da; Tap ohne geladene Frage holt eine Starter-Frage */}
+      {/* Orb antippen = nächste Frage (lokale Liste, ohne Agent);
+          Sprechblase antippen = Frage in den Eintrag übernehmen. */}
       <PromptBubble
         suggestion={currentSuggestion}
         visible={visible}
         tint={moodTint}
         compact={compact}
-        onRequestPreview={() => {
-          if (currentSuggestion) {
-            onSelectPrompt(currentSuggestion);
-          } else {
-            refresh();
-          }
-        }}
+        onRequestPreview={next}
+        onAccept={
+          currentSuggestion ? () => onSelectPrompt(currentSuggestion) : undefined
+        }
       />
     </>
   );

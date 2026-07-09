@@ -1,7 +1,7 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
 import os, json, re, logging, sys
 from collections import defaultdict
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -56,17 +56,26 @@ async def health():
     return {"status": "healthy", "agent": "sentiment", "model": MODEL}
 
 @app.post("/analyze")
-async def analyze_sentiment(input: TextInput):
+async def analyze_sentiment(input: TextInput, background_tasks: BackgroundTasks):
     """
-    Comprehensive sentiment analysis including:
-    - Emotional tone (emotional state)
-    - Valence (positivity spectrum: -1 to +1)
-    - Intensity (emotional strength: 0-100)
-    - Emotions (discrete emotion categories)
-    - Confidence level
+    Save the entry immediately, then run the sentiment analysis as a
+    background task. The entry is never lost when Ollama is slow or down,
+    and the app gets an instant response ("Fertig" muss nicht aufs LLM warten).
     """
     logger.info(f"📊 Analyzing: {input.text[:50]}...")
 
+    # Save-first: Text sofort persistieren, Analyse hängt nur Metadaten an.
+    entry_id = input.entry_id or save_entry(input.text)
+    background_tasks.add_task(run_analysis, entry_id, input)
+    return {"entry_id": entry_id, "status": "queued"}
+
+
+async def run_analysis(entry_id: int, input: TextInput):
+    """LLM-Analyse + Speichern von Sentiment und Mood-Profil (Hintergrund).
+
+    Schlägt die Analyse fehl, bleibt der Eintrag ohne valence erhalten –
+    die App zeigt ihn dann als neutral.
+    """
     mood_hint = ""
     mood_description = MOOD_DESCRIPTIONS.get(input.self_reported_mood or "")
     if mood_description:
@@ -117,7 +126,6 @@ Rules:
                 logger.info(f"✅ Sentiment detected - Valence: {sentiment_data.get('valence')}, Intensity: {sentiment_data.get('intensity')}")
 
                 # 💾 SAVE TO DATABASE
-                entry_id = input.entry_id or save_entry(input.text)
                 save_sentiment(
                     entry_id,
                     sentiment_data.get("sentiment", "neutral"),
@@ -132,17 +140,11 @@ Rules:
 
                 # Update mood profile
                 save_mood_profile(entry_id, sentiment_data)
-
-                return {
-                    "entry_id": entry_id,
-                    "analysis": sentiment_data
-                }
             else:
                 logger.error(f"Failed to extract JSON from: {response_text[:200]}")
-                raise Exception("Could not parse sentiment analysis response as JSON")
     except Exception as e:
-        logger.error(f"❌ Error: {e}")
-        raise
+        # Kein Re-Raise: Hintergrund-Task, der Eintrag selbst ist gespeichert.
+        logger.error(f"❌ Analysis failed for entry {entry_id}: {e}")
 
 @app.get("/entries")
 async def list_entries():
