@@ -45,6 +45,23 @@ def init_db():
         )
     """)
 
+    # Migration: Ältere DBs stammen aus der Zeit vor dem Valence-Modell
+    # (sentiment_analysis hatte nur sentiment/confidence/emotions). Spalten
+    # werden nur ergänzt, wenn sie noch fehlen -> bricht bestehende DBs nicht;
+    # Altdaten behalten valence=NULL und zählen im Frontend als neutral.
+    existing_sentiment_cols = {
+        row[1] for row in cursor.execute("PRAGMA table_info(sentiment_analysis)").fetchall()
+    }
+    for column, col_type in (
+        ("valence", "REAL"),
+        ("intensity", "INTEGER"),
+        ("tone", "TEXT"),
+        ("primary_emotion", "TEXT"),
+        ("secondary_emotions", "TEXT"),
+    ):
+        if column not in existing_sentiment_cols:
+            cursor.execute(f"ALTER TABLE sentiment_analysis ADD COLUMN {column} {col_type}")
+
     # Longitudinal Mood Profile - tracks mood over time
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS mood_profile (
