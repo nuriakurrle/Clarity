@@ -23,6 +23,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
-  time: { fontSize: 12, color: colors.primary, fontWeight: '600' },
+  // Neutral statt Alt-Grün: Uhrzeit gehört zum Weiß/Schwarz-Schema
+  time: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   text: { fontSize: 15, color: colors.text, marginTop: 4, lineHeight: 21 },
 });

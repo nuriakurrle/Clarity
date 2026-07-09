@@ -19,10 +19,14 @@ export function Tag({ label, count }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // Neutral statt Alt-Grün: weiße Chips mit dezenter Rahmenlinie,
+  // passend zum Weiß/Schwarz-Schema (Farbe bleibt den Mood-Elementen).
   tag: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.primarySoft,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     borderRadius: 20,
     paddingVertical: 7,
     paddingHorizontal: 12,
@@ -33,7 +37,7 @@ const styles = StyleSheet.create({
     minWidth: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: colors.primary,
+    backgroundColor: '#111111',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
