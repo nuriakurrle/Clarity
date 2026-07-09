@@ -126,13 +126,8 @@ backend/agent_prompt/
 ├── schemas/
 │   └── __init__.py           # Pydantic models for API
 │
-├── routes/
-│   └── __init__.py           # API endpoint definitions
-│
-├── crews/                    # CrewAI crew definitions (for LLM tasks)
-├── agents/                   # CrewAI agent definitions
-├── tasks/                    # CrewAI task definitions
-└── utils/                    # Helper utilities
+└── routes/
+    └── __init__.py           # API endpoint definitions
 ```
 
 ## Running Locally

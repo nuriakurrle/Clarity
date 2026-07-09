@@ -55,6 +55,21 @@ export const moodLabel: Record<MoodLevel, string> = {
   bad: 'Schwer',
 };
 
+/**
+ * Zwei Hex-Farben mischen (amount 0..1 = Anteil der Zielfarbe).
+ * Z.B. mixHex(moodColor.good, '#FFFFFF', 0.5) → pastellige Variante.
+ */
+export function mixHex(hex: string, target: string, amount: number): string {
+  const parse = (h: string) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
+  const [r1, g1, b1] = parse(hex);
+  const [r2, g2, b2] = parse(target);
+  const ch = (a: number, b: number) =>
+    Math.round(a + (b - a) * amount)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${ch(r1, r2)}${ch(g1, g2)}${ch(b1, b2)}`;
+}
+
 /** Valenz des Sentiment-Agenten (-1..+1) auf die fünfstufige Skala abbilden. */
 export function valenceToMoodLevel(valence: number): MoodLevel {
   if (valence >= 0.6) return 'great';

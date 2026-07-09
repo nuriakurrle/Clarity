@@ -10,21 +10,65 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
-import { colors } from '../../theme/colors';
+import { colors, mixHex } from '../../theme/colors';
 import { serif } from '../../theme/typography';
 
 // Auf Web gibt es kein natives Animationsmodul – false vermeidet die Warnung,
 // funktional identisch (RN Web animiert ohnehin in JS)
 const NATIVE_DRIVER = Platform.OS !== 'web';
 
+// Standard-Look ohne Tint: warme Peach/Amber-Palette mit einem Stich Hell-Lila
+const LILAC = '#C7B5EA';
+const DEFAULT_ORB = {
+  auraInner: mixHex('#FF9D5C', LILAC, 0.3),
+  auraOuter: mixHex('#FFC857', LILAC, 0.3),
+  bodyLight: mixHex('#FFEBD6', LILAC, 0.2),
+  bodyMid: mixHex('#F3CDB0', LILAC, 0.25),
+  bodyDeep: mixHex('#E5A17C', LILAC, 0.25),
+  bodyEdge: mixHex('#D98D62', LILAC, 0.25),
+  glow: mixHex('#FF9E80', LILAC, 0.45),
+};
+
+/**
+ * Orb-Palette aus einer Tint-Farbe ableiten (z.B. der gewählten Stimmung):
+ * heller Kern → satter Rand, Aura und Glühen im selben Ton.
+ */
+function orbPalette(tint?: string) {
+  if (!tint) return DEFAULT_ORB;
+  return {
+    auraInner: tint,
+    auraOuter: mixHex(tint, '#FFFFFF', 0.35),
+    bodyLight: mixHex(tint, '#FFFFFF', 0.75),
+    bodyMid: mixHex(tint, '#FFFFFF', 0.4),
+    bodyDeep: tint,
+    bodyEdge: mixHex(tint, '#000000', 0.15),
+    glow: mixHex(tint, '#FFFFFF', 0.2),
+  };
+}
+
 type Props = {
   suggestion?: string;
   visible: boolean;
   iconOnly?: boolean;
+  /** Färbt Kugel + Aura (z.B. Stimmungsfarbe); ohne Tint warmer Standard-Look. */
+  tint?: string;
+  /**
+   * Zurückhaltender Modus fürs Schreiben (Tastatur offen): Orb schrumpft,
+   * wird blass und rückt an den Rand. Liegt eine Empfehlung vor, bleibt er
+   * etwas größer und voll sichtbar – präsent, aber nicht störend.
+   */
+  compact?: boolean;
   onRequestPreview?: () => void;
 };
 
-export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconOnly = false }: Props) {
+export function PromptBubble({
+  suggestion = '',
+  visible,
+  onRequestPreview,
+  iconOnly = false,
+  tint,
+  compact = false,
+}: Props) {
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const tipOpacity = useRef(new Animated.Value(0)).current;
   const breathe = useRef(new Animated.Value(0)).current;
@@ -36,6 +80,28 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
   useEffect(() => {
     Animated.timing(opacity, { toValue: visible ? 1 : 0, duration: 300, useNativeDriver: NATIVE_DRIVER }).start();
   }, [visible, opacity]);
+
+  // Präsenz je nach Situation: beim Schreiben klein und blass am Rand,
+  // mit vorliegender Empfehlung sichtbar (aber kleiner als im Ruhezustand)
+  const hasSuggestion = Boolean(suggestion);
+  const targetScale = compact ? (hasSuggestion ? 0.7 : 0.45) : 1;
+  const targetPresence = compact ? (hasSuggestion ? 0.95 : 0.35) : 1;
+  const presenceScale = useRef(new Animated.Value(targetScale)).current;
+  const presenceOpacity = useRef(new Animated.Value(targetPresence)).current;
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(presenceScale, {
+        toValue: targetScale,
+        duration: 250,
+        useNativeDriver: NATIVE_DRIVER,
+      }),
+      Animated.timing(presenceOpacity, {
+        toValue: targetPresence,
+        duration: 250,
+        useNativeDriver: NATIVE_DRIVER,
+      }),
+    ]).start();
+  }, [targetScale, targetPresence, presenceScale, presenceOpacity]);
 
   // Atem-Animation: Aura und Orb schwellen sanft an und ab (~5s Zyklus)
   useEffect(() => {
@@ -59,20 +125,20 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
     return () => loop.stop();
   }, [breathe]);
 
-  // Schwebe-Animation: Orb samt Aura driftet langsam auf und ab (~6.5s Zyklus),
+  // Schwebe-Animation: Orb samt Aura driftet auf und ab (~5s Zyklus),
   // bewusst asynchron zum Atem-Rhythmus, damit die Bewegung organisch wirkt
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(float, {
           toValue: 1,
-          duration: 3200,
+          duration: 2500,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: NATIVE_DRIVER,
         }),
         Animated.timing(float, {
           toValue: 0,
-          duration: 3200,
+          duration: 2500,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: NATIVE_DRIVER,
         }),
@@ -82,20 +148,20 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
     return () => loop.stop();
   }, [float]);
 
-  // Seitliches Driften (~8.5s Zyklus): kombiniert mit dem vertikalen Schweben
+  // Seitliches Driften (~6.8s Zyklus): kombiniert mit dem vertikalen Schweben
   // entsteht eine leichte Achterbahn statt einer reinen Auf-Ab-Bewegung
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(drift, {
           toValue: 1,
-          duration: 4200,
+          duration: 3400,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: NATIVE_DRIVER,
         }),
         Animated.timing(drift, {
           toValue: 0,
-          duration: 4200,
+          duration: 3400,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: NATIVE_DRIVER,
         }),
@@ -132,15 +198,18 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
 
   if (!visible) return null;
 
+  const orbColors = orbPalette(tint);
+
   const auraScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] });
   const auraOpacity = breathe.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
   const orbScale = breathe.interpolate({ inputRange: [0, 1], outputRange: [1, 1.05] });
   const shimmerRotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [4, -7] });
-  const driftX = drift.interpolate({ inputRange: [0, 1], outputRange: [-3, 3] });
+  // Deutlich spürbares Schweben und Driften – der Orb soll lebendig wirken
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [8, -14] });
+  const driftX = drift.interpolate({ inputRange: [0, 1], outputRange: [-9, 9] });
   // Bodenschatten läuft gegenphasig: Orb oben → Schatten kleiner und blasser
-  const shadowScale = float.interpolate({ inputRange: [0, 1], outputRange: [1, 0.68] });
-  const shadowOpacity = float.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.12] });
+  const shadowScale = float.interpolate({ inputRange: [0, 1], outputRange: [1, 0.55] });
+  const shadowOpacity = float.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.1] });
 
   // Touch-Feedback: beim Antippen kurz „einatmen", per Spring zurück
   const pressIn = () =>
@@ -148,8 +217,23 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
   const pressOut = () =>
     Animated.spring(pressScale, { toValue: 1, friction: 4, useNativeDriver: NATIVE_DRIVER }).start();
 
+  // Im Kompakt-Modus zusätzlich Richtung rechten Rand rücken
+  const edgeShift = presenceScale.interpolate({
+    inputRange: [0.45, 1],
+    outputRange: [26, 0],
+    extrapolate: 'clamp',
+  });
+
   return (
-    <Animated.View style={[styles.container, { opacity: opacity }]}>
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          opacity: Animated.multiply(opacity, presenceOpacity),
+          transform: [{ scale: presenceScale }, { translateX: edgeShift }],
+        },
+      ]}
+    >
       <Animated.View
         style={[styles.groundShadow, { opacity: shadowOpacity, transform: [{ scaleX: shadowScale }] }]}
       />
@@ -160,13 +244,13 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
           <Svg width={AURA_SIZE} height={AURA_SIZE}>
             <Defs>
               <RadialGradient id="pbAura" cx="50%" cy="50%" r="50%">
-                <Stop offset="0%" stopColor="#FF9D5C" stopOpacity={0.5} />
-                <Stop offset="42%" stopColor="#FFC857" stopOpacity={0.28} />
-                <Stop offset="70%" stopColor="#FFC857" stopOpacity={0.1} />
+                <Stop offset="0%" stopColor={orbColors.auraInner} stopOpacity={0.5} />
+                <Stop offset="42%" stopColor={orbColors.auraOuter} stopOpacity={0.28} />
+                <Stop offset="70%" stopColor={orbColors.auraOuter} stopOpacity={0.1} />
                 {/* Schon vor dem Kreisrand voll transparent – vermeidet eine
                     sichtbare Kante durch Rundungsartefakte beim Rendern */}
-                <Stop offset="92%" stopColor="#FFC857" stopOpacity={0} />
-                <Stop offset="100%" stopColor="#FFC857" stopOpacity={0} />
+                <Stop offset="92%" stopColor={orbColors.auraOuter} stopOpacity={0} />
+                <Stop offset="100%" stopColor={orbColors.auraOuter} stopOpacity={0} />
               </RadialGradient>
             </Defs>
             <Circle cx={AURA_SIZE / 2} cy={AURA_SIZE / 2} r={AURA_SIZE / 2} fill="url(#pbAura)" />
@@ -182,10 +266,10 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
             <Svg width={ORB_SIZE} height={ORB_SIZE} style={StyleSheet.absoluteFill}>
               <Defs>
                 <RadialGradient id="pbBody" cx="68%" cy="45%" r="88%">
-                  <Stop offset="0%" stopColor="#FFEBD6" />
-                  <Stop offset="55%" stopColor="#F3CDB0" />
-                  <Stop offset="90%" stopColor="#E5A17C" />
-                  <Stop offset="100%" stopColor="#D98D62" />
+                  <Stop offset="0%" stopColor={orbColors.bodyLight} />
+                  <Stop offset="55%" stopColor={orbColors.bodyMid} />
+                  <Stop offset="90%" stopColor={orbColors.bodyDeep} />
+                  <Stop offset="100%" stopColor={orbColors.bodyEdge} />
                 </RadialGradient>
               </Defs>
               <Circle cx={ORB_SIZE / 2} cy={ORB_SIZE / 2} r={ORB_SIZE / 2} fill="url(#pbBody)" />
@@ -198,8 +282,8 @@ export function PromptBubble({ suggestion = '', visible, onRequestPreview, iconO
                     <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0} />
                   </RadialGradient>
                   <RadialGradient id="pbGlow" cx="50%" cy="50%" r="50%">
-                    <Stop offset="0%" stopColor="#FF9E80" stopOpacity={0.8} />
-                    <Stop offset="100%" stopColor="#FF9E80" stopOpacity={0} />
+                    <Stop offset="0%" stopColor={orbColors.glow} stopOpacity={0.8} />
+                    <Stop offset="100%" stopColor={orbColors.glow} stopOpacity={0} />
                   </RadialGradient>
                 </Defs>
                 <Circle cx={ORB_SIZE * 0.3} cy={ORB_SIZE * 0.28} r={ORB_SIZE * 0.42} fill="url(#pbShine)" />

@@ -14,10 +14,14 @@ import { usePromptSuggestions } from '../../hooks/usePromptSuggestions';
 
 type Props = {
   journalText: string;
+  /** Färbt den Orb (z.B. in der gewählten Stimmungsfarbe). */
+  moodTint?: string;
+  /** Beim Schreiben (Tastatur offen): Orb zurückhaltend klein und blass. */
+  compact?: boolean;
   onSelectPrompt: (prompt: string) => void;
 };
 
-export function PromptAssistant({ journalText, onSelectPrompt }: Props) {
+export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt }: Props) {
   const {
     visible,
     currentSuggestion,
@@ -39,6 +43,8 @@ export function PromptAssistant({ journalText, onSelectPrompt }: Props) {
       <PromptBubble
         suggestion={currentSuggestion}
         visible={visible}
+        tint={moodTint}
+        compact={compact}
         onRequestPreview={() => {
           if (currentSuggestion) {
             onSelectPrompt(currentSuggestion);
