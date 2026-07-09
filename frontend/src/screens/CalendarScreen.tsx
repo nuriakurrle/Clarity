@@ -35,6 +35,7 @@ import {
   MoodPill,
   WeekBubbles,
   WeekDay,
+  buildWeekTotals,
 } from '../components/calendar';
 import { MOCK_WEEK } from '../services/mockCalendarData';
 import { SegmentedControl, Tag } from '../components/insight';
@@ -47,7 +48,7 @@ import {
 import { colors } from '../theme/colors';
 import { MoodLevel, normalizeIntensity, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
-import { dayMoodLine } from '../utils/moodPrompts';
+import { dayMoodLine, weekMoodLine } from '../utils/moodPrompts';
 import { TypewriterText } from '../components/home/TypewriterText';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -333,6 +334,21 @@ export default function CalendarScreen() {
       })()
     : 'Kein Tag ausgewählt';
 
+  // --- Wochen-Zusammenfassung (nur Wochenansicht) --------------------------
+  // Dieselbe Aggregation wie die Bubbles (buildWeekTotals) → Text, Prozent-Pills
+  // und Kleckse können nicht auseinanderlaufen. Prozente = Anteil je Kategorie
+  // an der Wochensumme; der Satz kommt aus der dominanten Kategorie.
+  const weekTotals = buildWeekTotals(weekDays);
+  const weekSum = weekTotals.reduce((sum, t) => sum + t.total, 0);
+  const weekMoods: DayMood[] =
+    weekSum > 0
+      ? weekTotals.map((t) => ({ level: t.level, percent: Math.round((t.total / weekSum) * 100) }))
+      : [];
+  const weekLine =
+    weekSum > 0
+      ? weekMoodLine(weekTotals.map((t) => ({ level: t.level, share: t.total / weekSum })))
+      : '';
+
   const todayDayInMonth =
     year === today.getFullYear() && month === today.getMonth() ? today.getDate() : null;
 
@@ -378,8 +394,6 @@ export default function CalendarScreen() {
               // key: bei Wochenwechsel remounten → Pop-in-Animation läuft erneut
               key={toKey(weekStart)}
               days={weekDays}
-              selectedDate={selectedDate}
-              onSelect={selectDate}
             />
           )}
         </View>
@@ -404,67 +418,100 @@ export default function CalendarScreen() {
           </View>
         </View>
 
-        {/* Ausgewählter Tag: Serif-Headline wie auf dem HomeScreen */}
-        <View style={styles.spacer32}>
-          <Text style={styles.detailTitle}>{selectedTitle}</Text>
-        </View>
-
-        {selectedMoods.length > 0 ? (
-          <View style={styles.sectionContent}>
-            {/* Kurze Tages-Beobachtung, tippt sich bei jeder Tages-Auswahl
-                ein (key={selectedDate} remountet den Typewriter). */}
-            <TypewriterText
-              key={selectedDate}
-              text={dayMoodLine(selectedMoods[0].level)}
-              active
-              style={styles.dayLine}
-            />
-            {/* Exakte Verteilung als farbige Pills („Schwer · 70 %") */}
-            <View style={styles.emotionRow}>
-              {mainMoods.map((m) => (
-                <MoodPill key={m.level} level={m.level} percent={m.percent} />
-              ))}
+        {view === 'Woche' ? (
+          /* Wochenansicht: Zusammenfassung der GESAMTEN Woche (kein Tag nötig) */
+          <>
+            <View style={styles.spacer32}>
+              <Text style={styles.detailTitle}>{navLabel}</Text>
             </View>
-            {minorMoods.length > 0 ? (
-              <View style={styles.emotionRow}>
-                <Text style={styles.intensityText}>Weitere Emotionen:</Text>
-                {minorMoods.map((m) => (
-                  <MoodPill key={m.level} level={m.level} percent={m.percent} />
-                ))}
+            {weekMoods.length > 0 ? (
+              <View style={styles.sectionContent}>
+                {/* Wochen-Beobachtung, tippt sich beim Wochenwechsel neu ein */}
+                <TypewriterText
+                  key={`week-${toKey(weekStart)}`}
+                  text={weekLine}
+                  active
+                  style={styles.dayLine}
+                />
+                {/* Wochen-aggregierte Verteilung als farbige Pills */}
+                <View style={styles.emotionRow}>
+                  {weekMoods.map((m) => (
+                    <MoodPill key={m.level} level={m.level} percent={m.percent} />
+                  ))}
+                </View>
               </View>
-            ) : null}
-            {selectedData && selectedData.emotions.length > 0 ? (
-              <View style={styles.emotionRow}>
-                {selectedData.emotions.map((emo) => (
-                  <Tag key={emo} label={emo} />
-                ))}
-              </View>
-            ) : null}
-            {selectedMockMoods ? (
-              <Text style={styles.hint}>
-                Beispieldaten – dein Kalender füllt sich mit echten Einträgen.
-              </Text>
-            ) : null}
-            {selectedData?.entries.map((e) => {
-              const local = parseEntryDate(e.created_at);
-              const time = local
-                ? `${String(local.getHours()).padStart(2, '0')}:${String(local.getMinutes()).padStart(2, '0')}`
-                : '';
-              const text =
-                e.content.length > 140
-                  ? `${e.content.slice(0, 140).trimEnd()}…`
-                  : e.content;
-              return <EntryCard key={e.id} time={time} text={text} />;
-            })}
-          </View>
+            ) : (
+              <Card style={styles.emptyCard}>
+                <Text style={styles.emptyText}>Noch keine Einträge in dieser Woche.</Text>
+              </Card>
+            )}
+          </>
         ) : (
-          <Card style={styles.emptyCard}>
-            <Text style={styles.emptyText}>
-              {selectedDate != null
-                ? 'An diesem Tag gibt es keinen Eintrag.'
-                : 'Wähle einen Tag, um Einträge zu sehen.'}
-            </Text>
-          </Card>
+          /* Monatsansicht: unveränderte Tages-Detailansicht (Tag-Granularität) */
+          <>
+            {/* Ausgewählter Tag: Serif-Headline wie auf dem HomeScreen */}
+            <View style={styles.spacer32}>
+              <Text style={styles.detailTitle}>{selectedTitle}</Text>
+            </View>
+
+            {selectedMoods.length > 0 ? (
+              <View style={styles.sectionContent}>
+                {/* Kurze Tages-Beobachtung, tippt sich bei jeder Tages-Auswahl
+                    ein (key={selectedDate} remountet den Typewriter). */}
+                <TypewriterText
+                  key={selectedDate}
+                  text={dayMoodLine(selectedMoods[0].level)}
+                  active
+                  style={styles.dayLine}
+                />
+                {/* Exakte Verteilung als farbige Pills („Schwer · 70 %") */}
+                <View style={styles.emotionRow}>
+                  {mainMoods.map((m) => (
+                    <MoodPill key={m.level} level={m.level} percent={m.percent} />
+                  ))}
+                </View>
+                {minorMoods.length > 0 ? (
+                  <View style={styles.emotionRow}>
+                    <Text style={styles.intensityText}>Weitere Emotionen:</Text>
+                    {minorMoods.map((m) => (
+                      <MoodPill key={m.level} level={m.level} percent={m.percent} />
+                    ))}
+                  </View>
+                ) : null}
+                {selectedData && selectedData.emotions.length > 0 ? (
+                  <View style={styles.emotionRow}>
+                    {selectedData.emotions.map((emo) => (
+                      <Tag key={emo} label={emo} />
+                    ))}
+                  </View>
+                ) : null}
+                {selectedMockMoods ? (
+                  <Text style={styles.hint}>
+                    Beispieldaten – dein Kalender füllt sich mit echten Einträgen.
+                  </Text>
+                ) : null}
+                {selectedData?.entries.map((e) => {
+                  const local = parseEntryDate(e.created_at);
+                  const time = local
+                    ? `${String(local.getHours()).padStart(2, '0')}:${String(local.getMinutes()).padStart(2, '0')}`
+                    : '';
+                  const text =
+                    e.content.length > 140
+                      ? `${e.content.slice(0, 140).trimEnd()}…`
+                      : e.content;
+                  return <EntryCard key={e.id} time={time} text={text} />;
+                })}
+              </View>
+            ) : (
+              <Card style={styles.emptyCard}>
+                <Text style={styles.emptyText}>
+                  {selectedDate != null
+                    ? 'An diesem Tag gibt es keinen Eintrag.'
+                    : 'Wähle einen Tag, um Einträge zu sehen.'}
+                </Text>
+              </Card>
+            )}
+          </>
         )}
 
         <View style={styles.bottomSpace} />

@@ -8,6 +8,18 @@
  * Prozentuale Mood-Verteilung pro Wochentag (Mo–Fr), Summe je Tag = 100.
  * Stufen entsprechen der 5-Stufen-Skala aus theme/colors.ts
  * (great/good/neutral/low/bad), nicht einzelnen Emotionen.
+ *
+ * Bewusst positiv gehalten: Über die Woche summiert (siehe unten) ist
+ * „Sehr gut" (great) klar die dominante Kategorie – das spiegelt eine
+ * überwiegend positive Woche und macht den größten Klecks im 5-Klekse-Modell
+ * eindeutig grün, nicht nur knapp vorn.
+ *
+ *   Wochensumme je Kategorie (Σ über Mo–Fr):
+ *     great   250   ← klar dominant (~1,7× der nächsten)
+ *     good    143
+ *     neutral  69
+ *     low      26
+ *     bad      12
  */
 import { MoodLevel } from '../theme/moodColors';
 
@@ -19,51 +31,57 @@ export type MockDayDistribution = {
 
 export const MOCK_WEEK: MockDayDistribution[] = [
   {
-    // Montag: schwer dominiert, etwas Dankbarkeit/Ruhe
+    // Montag: guter Start, überwiegend sehr gut
     weekdayOffset: 0,
     moods: [
-      { level: 'bad', percent: 70 },
-      { level: 'good', percent: 15 },
-      { level: 'great', percent: 10 },
-      { level: 'neutral', percent: 5 },
+      { level: 'great', percent: 45 },
+      { level: 'good', percent: 30 },
+      { level: 'neutral', percent: 15 },
+      { level: 'low', percent: 7 },
+      { level: 'bad', percent: 3 }, // < MIN_PERCENT → nur im Detail sichtbar
     ],
   },
   {
-    // Dienstag: gedrückt, aber mit gutem Abend
+    // Dienstag: richtig starker Tag
     weekdayOffset: 1,
     moods: [
-      { level: 'low', percent: 55 },
-      { level: 'neutral', percent: 25 },
-      { level: 'good', percent: 20 },
+      { level: 'great', percent: 55 },
+      { level: 'good', percent: 25 },
+      { level: 'neutral', percent: 12 },
+      { level: 'low', percent: 5 },
+      { level: 'bad', percent: 3 }, // < MIN_PERCENT → nur im Detail sichtbar
     ],
   },
   {
-    // Mittwoch: ausgeglichen mit leichtem Hoch
+    // Mittwoch: gut, mit ruhiger Note
     weekdayOffset: 2,
     moods: [
-      { level: 'neutral', percent: 45 },
-      { level: 'good', percent: 40 },
-      { level: 'low', percent: 13 },
+      { level: 'great', percent: 40 },
+      { level: 'good', percent: 35 },
+      { level: 'neutral', percent: 20 },
+      { level: 'low', percent: 5 },
+    ],
+  },
+  {
+    // Donnerstag: bester Tag der Woche
+    weekdayOffset: 3,
+    moods: [
+      { level: 'great', percent: 60 },
+      { level: 'good', percent: 25 },
+      { level: 'neutral', percent: 10 },
+      { level: 'low', percent: 3 },
       { level: 'bad', percent: 2 }, // < MIN_PERCENT → nur im Detail sichtbar
     ],
   },
   {
-    // Donnerstag: richtig guter Tag
-    weekdayOffset: 3,
-    moods: [
-      { level: 'great', percent: 60 },
-      { level: 'good', percent: 30 },
-      { level: 'neutral', percent: 10 },
-    ],
-  },
-  {
-    // Freitag: gemischt, kleine Spitze nach unten
+    // Freitag: weiterhin positiv, kleine Tiefs
     weekdayOffset: 4,
     moods: [
-      { level: 'good', percent: 35 },
-      { level: 'low', percent: 30 },
-      { level: 'great', percent: 20 },
-      { level: 'bad', percent: 15 },
+      { level: 'great', percent: 50 },
+      { level: 'good', percent: 28 },
+      { level: 'neutral', percent: 12 },
+      { level: 'low', percent: 6 },
+      { level: 'bad', percent: 4 },
     ],
   },
 ];
