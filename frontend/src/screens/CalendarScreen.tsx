@@ -23,7 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AuraHeader, Card } from '../components';
+import { AuraHeader, Card, SectionLabel } from '../components';
 import { LoadingPulse } from '../components/LoadingPulse';
 import {
   CalendarGrid,
@@ -47,6 +47,8 @@ import {
 import { colors } from '../theme/colors';
 import { MoodLevel, normalizeIntensity, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
+import { dayMoodLine } from '../utils/moodPrompts';
+import { TypewriterText } from '../components/home/TypewriterText';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -393,17 +395,30 @@ export default function CalendarScreen() {
           </Text>
         ) : null}
 
-        <View style={styles.spacer16}>
-          <MoodLegend />
+        {/* Sektionen im HomeScreen-Stil: SectionLabel-Überschriften +
+            luftige Abstände, Inhalte in weißen Karten. */}
+        <View style={styles.spacer32}>
+          <SectionLabel text="Stimmungsskala" />
+          <View style={styles.sectionContent}>
+            <MoodLegend />
+          </View>
         </View>
 
-        {/* Ausgewählter Tag */}
-        <View style={styles.detailHeaderRow}>
+        {/* Ausgewählter Tag: Serif-Headline wie auf dem HomeScreen */}
+        <View style={styles.spacer32}>
           <Text style={styles.detailTitle}>{selectedTitle}</Text>
         </View>
 
         {selectedMoods.length > 0 ? (
-          <View>
+          <View style={styles.sectionContent}>
+            {/* Kurze Tages-Beobachtung, tippt sich bei jeder Tages-Auswahl
+                ein (key={selectedDate} remountet den Typewriter). */}
+            <TypewriterText
+              key={selectedDate}
+              text={dayMoodLine(selectedMoods[0].level)}
+              active
+              style={styles.dayLine}
+            />
             {/* Exakte Verteilung als farbige Pills („Schwer · 70 %") */}
             <View style={styles.emotionRow}>
               {mainMoods.map((m) => (
@@ -464,14 +479,26 @@ const styles = StyleSheet.create({
   spacer20: { marginTop: 12 },
   spacer16: { marginTop: 16 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
-  detailHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 24,
+  // Abstände/Struktur wie HomeScreen (SectionLabel + sectionContent)
+  spacer32: { marginTop: 32 },
+  sectionContent: { marginTop: 12 },
+  // Serif-Headline wie die Home-Frage („Was bewegt dich heute?")
+  detailTitle: {
+    fontFamily: serif,
+    fontSize: 23,
+    lineHeight: 31,
+    fontWeight: '600',
+    color: '#000000',
+  },
+  // Tages-Beobachtung im Zitat-Stil der Digest-Sektion
+  dayLine: {
+    fontFamily: serif,
+    fontStyle: 'italic',
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textMuted,
     marginBottom: 12,
   },
-  detailTitle: { fontFamily: serif, fontSize: 22, fontWeight: '700', color: colors.text },
   emotionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -480,7 +507,21 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   intensityText: { fontSize: 13, color: colors.textMuted },
-  emptyCard: { backgroundColor: colors.surfaceAlt, borderWidth: 0, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
+  // Leere Karte im QuoteBlock-Look des HomeScreens: weiß + dezente Linie,
+  // Serifen-Kursiv wie die Zitate dort.
+  emptyCard: {
+    marginTop: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+  },
+  emptyText: {
+    fontFamily: serif,
+    fontStyle: 'italic',
+    fontSize: 15,
+    lineHeight: 22,
+    color: colors.textMuted,
+  },
   bottomSpace: { height: 24 },
 });

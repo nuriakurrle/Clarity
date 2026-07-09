@@ -33,6 +33,28 @@ export const MIN_PERCENT = 3;
  */
 export const MAX_BUBBLES_PER_DAY = 1;
 
+/**
+ * TEMP: Testflag für Multi-Mood-Darstellung, nur für Donnerstag – der Tag
+ * mit diesem Wochentags-Kürzel zeigt ALLE Moods über MIN_PERCENT als eigene
+ * Kleckse (Fläche ∝ Prozentsatz) über die GESAMTE Canvas-Breite; alle
+ * anderen Tage rendern in diesem Test-Durchlauf bewusst KEINE Bubbles.
+ * Vor Rollout auf die ganze Woche wieder entfernen/anpassen (null = aus).
+ */
+const TEST_MULTI_MOOD_DAY_LABEL: string | null = 'Do';
+
+/**
+ * TEMP: Beispiel-Verteilung für den Test-Tag (alle 5 Kategorien, Summe 100) –
+ * überschreibt für den Test die echten Tagesdaten, damit das Verhalten mit
+ * vollständigem Kategorien-Satz beurteilt werden kann.
+ */
+const TEST_MULTI_MOOD_DISTRIBUTION: DayMood[] = [
+  { level: 'bad', percent: 55 },
+  { level: 'low', percent: 20 },
+  { level: 'neutral', percent: 15 },
+  { level: 'good', percent: 7 },
+  { level: 'great', percent: 3 },
+];
+
 export type DayMood = { level: MoodLevel; percent: number };
 
 export type WeekDay = {
@@ -89,31 +111,42 @@ export function WeekBubbles({ days, selectedDate, onSelect }: Props) {
   const bubbles =
     width > 0
       ? days.flatMap((d, i) => {
-          // Nur die stärksten Moods des Tages (moods ist absteigend sortiert).
-          const visible = d.moods
-            .filter((m) => m.percent >= MIN_PERCENT)
-            .slice(0, MAX_BUBBLES_PER_DAY);
-          // Grobe horizontale Tendenz des Tages + kräftiger Seed-Versatz.
-          const baseX = width * ((i + 0.5) / days.length);
-          // Tages-Grundhöhe variiert über die Fläche (nicht alle auf einer Linie).
-          const baseY = CANVAS_HEIGHT * (0.3 + 0.4 * seededRand(`${d.date}-y`));
-          // Großzügige Flächen wie im Referenzbild: die dominanteste Bubble
-          // der Woche nimmt ~45 % der Canvas-Höhe ein. Überlappungen zwischen
-          // Nachbartagen sind gewollt – die halbtransparenten Fade-Ränder
-          // vermischen sich dort weich statt sich hart zu verdecken.
+          // TEMP: Test-Durchlauf – NUR der Test-Tag rendert Bubbles auf der
+          // Fläche, alle anderen Tage bewusst leer. Die Wochentag-Pillen
+          // unten bleiben davon unberührt (eigener Render-Block).
+          const isTestDay = d.label === TEST_MULTI_MOOD_DAY_LABEL;
+          if (!isTestDay) return [];
+
+          // TEMP: Beispiel-Verteilung mit allen 5 Kategorien statt der
+          // echten Tagesdaten (siehe TEST_MULTI_MOOD_DISTRIBUTION).
+          const visible = TEST_MULTI_MOOD_DISTRIBUTION.filter(
+            (m) => m.percent >= MIN_PERCENT,
+          );
+
+          // Der Test-Tag darf die GESAMTE Canvas-Breite nutzen (keine
+          // konkurrierenden Tage): organische Streuung über die volle
+          // Fläche, Größen klar nach Prozentanteil gestaffelt.
           const maxD = Math.min(CANVAS_HEIGHT * 0.62, width * 0.6);
-          const minD = maxD * 0.42;
+          const minD = 36;
           return visible.map((m, k) => {
-            const diameter = clamp(minD + (m.percent / 100) * (maxD - minD), minD, maxD);
-            const jx = (seededRand(`${d.date}-${m.level}-x`) - 0.5) * width * 0.3;
-            const jy = (seededRand(`${d.date}-${m.level}-y`) - 0.5) * CANVAS_HEIGHT * 0.7;
+            const diameter = clamp(
+              minD + (m.percent / 100) * (maxD - minD),
+              minD,
+              maxD,
+            );
+            // Diagonale Grundverteilung über die volle Breite (größte oben
+            // links → kleinste unten rechts) + Seed-Versatz für Organik.
+            const baseX = width * ((k + 0.5) / visible.length);
+            const baseY = CANVAS_HEIGHT * (0.25 + 0.5 * seededRand(`${d.date}-${m.level}-base`));
+            const jx = (seededRand(`${d.date}-${m.level}-x`) - 0.5) * width * 0.22;
+            const jy = (seededRand(`${d.date}-${m.level}-y`) - 0.5) * CANVAS_HEIGHT * 0.3;
             return {
               key: `${d.date}-${m.level}`,
               dayIndex: i,
               level: m.level,
               d: diameter,
               x: clamp(baseX + jx, diameter / 2 - width * 0.04, width - diameter / 2 + width * 0.04),
-              y: clamp(baseY + jy * (k === 0 ? 0.4 : 1), diameter / 2, CANVAS_HEIGHT - diameter / 2),
+              y: clamp(baseY + jy, diameter / 2, CANVAS_HEIGHT - diameter / 2),
             };
           });
         })

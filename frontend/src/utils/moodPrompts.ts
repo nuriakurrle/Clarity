@@ -66,3 +66,21 @@ export function weeklyMoodPrompt(
   }
   return pickDaily(PROMPTS[layers[0].level]);
 }
+
+/**
+ * Kurze Tages-Beobachtung für den Kalender-Detailbereich – gleiche
+ * Tonalitäts-Regeln wie oben: Beobachtung statt Diagnose, kein
+ * Gesprächspartner-Ton.
+ */
+const DAY_LINES: Record<MoodLevel, string> = {
+  bad: 'Ein Tag mit viel Schwerem.',
+  low: 'Ein eher gedrückter Tag.',
+  neutral: 'Ein ausgeglichener Tag.',
+  good: 'Ein Tag mit guten Momenten.',
+  great: 'Ein richtig guter Tag.',
+};
+
+/** Beschreibende Zeile zum ausgewählten Tag (dominante Stimmung). */
+export function dayMoodLine(level: MoodLevel): string {
+  return DAY_LINES[level];
+}
