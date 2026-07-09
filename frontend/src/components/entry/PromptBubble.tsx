@@ -7,7 +7,7 @@
  * Die Gradients sind mit react-native-svg gebaut, weil das sowohl nativ als
  * auch im Browser rendert (experimental_backgroundImage greift nur nativ).
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet, Text } from 'react-native';
 import Svg, { Circle, Defs, RadialGradient, Stop } from 'react-native-svg';
 import { colors, mixHex } from '../../theme/colors';
@@ -58,13 +58,17 @@ type Props = {
    * etwas größer und voll sichtbar – präsent, aber nicht störend.
    */
   compact?: boolean;
+  /** Tap auf den Orb (z.B. nächste Frage anfordern). */
   onRequestPreview?: () => void;
+  /** Tap auf die Sprechblase: aktuelle Frage übernehmen. */
+  onAccept?: () => void;
 };
 
 export function PromptBubble({
   suggestion = '',
   visible,
   onRequestPreview,
+  onAccept,
   iconOnly = false,
   tint,
   compact = false,
@@ -185,15 +189,28 @@ export function PromptBubble({
     return () => loop.stop();
   }, [spin]);
 
-  // show transient preview tooltip whenever suggestion changes
+  // Sprechblase kurz einblenden, wenn ein neuer Vorschlag eintrifft – auch
+  // beim Tippen: schmal und in Orb-Farben ist sie leise genug, um den
+  // Schreibfluss nicht zu stören. Solange sie sichtbar ist, nimmt sie Taps
+  // an (Frage übernehmen); danach wird sie wieder "durchlässig".
+  const [tipShown, setTipShown] = useState(false);
   useEffect(() => {
-    if (!suggestion) return;
+    if (!suggestion) {
+      tipOpacity.setValue(0);
+      setTipShown(false);
+      return;
+    }
     tipOpacity.setValue(0);
-    Animated.sequence([
+    setTipShown(true);
+    const anim = Animated.sequence([
       Animated.timing(tipOpacity, { toValue: 1, duration: 220, useNativeDriver: NATIVE_DRIVER }),
       Animated.delay(4200),
       Animated.timing(tipOpacity, { toValue: 0, duration: 400, useNativeDriver: NATIVE_DRIVER }),
-    ]).start();
+    ]);
+    anim.start(({ finished }) => {
+      if (finished) setTipShown(false);
+    });
+    return () => anim.stop();
   }, [suggestion, tipOpacity]);
 
   if (!visible) return null;
@@ -293,8 +310,28 @@ export function PromptBubble({
           </Animated.View>
         </Pressable>
       </Animated.View>
-      <Animated.View style={[styles.previewTip, { opacity: tipOpacity }]}>
-        {suggestion ? <Text numberOfLines={2} ellipsizeMode="tail" style={styles.previewText}>{suggestion}</Text> : null}
+      {/* Blase in der Palette des Orbs (Mood-Tint bzw. Standard-Peach),
+          damit beide als ein Element wirken statt zu konkurrieren.
+          Tap auf die sichtbare Blase übernimmt die Frage in den Eintrag. */}
+      <Animated.View
+        pointerEvents={tipShown ? 'auto' : 'none'}
+        style={[
+          styles.previewTip,
+          {
+            opacity: tipOpacity,
+            backgroundColor: mixHex(orbColors.bodyLight, '#FFFFFF', 0.55),
+            borderColor: mixHex(orbColors.bodyMid, '#FFFFFF', 0.25),
+            shadowColor: orbColors.glow,
+          },
+        ]}
+      >
+        {suggestion ? (
+          <Pressable onPress={onAccept} disabled={!onAccept} hitSlop={6}>
+            <Text numberOfLines={3} ellipsizeMode="tail" style={styles.previewText}>
+              {suggestion}
+            </Text>
+          </Pressable>
+        ) : null}
       </Animated.View>
     </Animated.View>
   );
@@ -358,18 +395,14 @@ const styles = StyleSheet.create({
   },
   previewTip: {
     position: 'absolute',
-    pointerEvents: 'none',
     right: 0,
     bottom: AURA_SIZE - 16,
-    width: 280,
-    padding: 12,
-    backgroundColor: colors.warm + '15',
+    width: 200,
+    padding: 10,
     borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.warm,
-    shadowColor: colors.warm,
-    shadowOpacity: 0.2,
-    elevation: 5,
+    borderWidth: 1,
+    shadowOpacity: 0.12,
+    elevation: 3,
   },
   previewText: { fontFamily: serif, fontSize: 14, fontWeight: '500', color: colors.text },
 });

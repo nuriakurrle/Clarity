@@ -5,12 +5,41 @@
  * Journal-Text lang genug ist. Hält Sichtbarkeit, Loading-State und die
  * Consent-Banner-Logik, damit Screens davon nichts wissen müssen.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { generatePrompt } from '../services/api';
 
 const DEBOUNCE_MS = 800;
 const MIN_TEXT_LENGTH = 10;
 const FALLBACK_QUESTION = 'Was beschäftigt dich gerade?';
+
+/**
+ * Lokale Fragen fürs Durchtippen am Orb – bewusst OHNE Agent-Aufruf
+ * (Mock; die tiefere Agent-Anbindung folgt später). Jeder Tap liefert die
+ * nächste Frage der Liste, unabhängig davon, ob das Backend erreichbar ist.
+ */
+const LOCAL_PROMPTS = [
+  'Was beschäftigt dich gerade am meisten?',
+  'Wie fühlst du dich in diesem Moment?',
+  'Gibt es etwas, das du heute loswerden möchtest?',
+  'Was hat dich heute überrascht?',
+  'Wofür bist du heute dankbar?',
+  'Was war der schönste Moment des Tages?',
+  'Welcher Gedanke lässt dich gerade nicht los?',
+  'Was würdest du deinem morgigen Ich mitgeben?',
+  'Welche Person ging dir heute durch den Kopf?',
+  'Was kannst du heute loslassen?',
+];
+
+/**
+ * Tageszeit-Kontext für den Prompt-Agenten: Morgens/abends wählt der
+ * ContextAnalyzer dann passende Temporal-Fragen statt der Starter-Liste.
+ */
+function timeContext(): 'morning' | 'evening' | 'editor_open' {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 11) return 'morning';
+  if (hour >= 17) return 'evening';
+  return 'editor_open';
+}
 
 export function usePromptSuggestions(journalText: string) {
   const [visible, setVisible] = useState(true);
@@ -28,7 +57,9 @@ export function usePromptSuggestions(journalText: string) {
         console.log('[usePromptSuggestions] loadPrompts called with text length:', text.length);
         const result = await generatePrompt({
           journal_text: text,
-          context: 'editor_open',
+          // Leere Seite → Starter-Frage (Blank-Page Prevention); sobald
+          // geschrieben wird, darf die Tageszeit die Frage einfärben.
+          context: text.trim().length >= MIN_TEXT_LENGTH ? timeContext() : 'editor_open',
           streak_days: 0,
         });
 
@@ -68,6 +99,20 @@ export function usePromptSuggestions(journalText: string) {
     loadPrompts(journalText);
   }, [journalText, loadPrompts]);
 
+  // Tap auf den Orb: nächste lokale Frage. Überspringt die aktuell gezeigte,
+  // damit sich die Sprechblase immer sichtbar mit neuem Inhalt meldet.
+  const localIndex = useRef(0);
+  const next = useCallback(() => {
+    let question = LOCAL_PROMPTS[localIndex.current % LOCAL_PROMPTS.length];
+    localIndex.current += 1;
+    if (question === currentSuggestion) {
+      question = LOCAL_PROMPTS[localIndex.current % LOCAL_PROMPTS.length];
+      localIndex.current += 1;
+    }
+    setSuggestions([question]);
+    setCurrentSuggestion(question);
+  }, [currentSuggestion]);
+
   const acceptConsent = useCallback(() => {
     setShowConsentBanner(false);
     setVisible(true);
@@ -90,6 +135,7 @@ export function usePromptSuggestions(journalText: string) {
     currentSuggestion,
     showConsentBanner,
     refresh,
+    next,
     acceptConsent,
     declineConsent,
     dismiss,

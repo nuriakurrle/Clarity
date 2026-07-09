@@ -77,7 +77,10 @@ async def generate_prompt(request: PromptRequest):
         
         # Get prompts from library or generate with Ollama
         if prompt_type == "starter":
-            prompts = get_prompt_by_category("starter", request.journal_text[:100] or "default")
+            # Zweiter Parameter ist die Sprache – hier stand versehentlich der
+            # Journal-Text, wodurch die Liste leer blieb und immer derselbe
+            # Fallback-String zurückkam statt der 5 kuratierten Starter-Fragen.
+            prompts = get_prompt_by_category("starter", "de")
             question = random.choice(prompts) if prompts else "Was beschäftigt dich gerade?"
         elif prompt_type == "safety":
             prompts = get_prompt_by_category("safety")

@@ -3,8 +3,10 @@
  *
  * Titel, Fließtext und Stimmungsauswahl. Datum/Uhrzeit kommen direkt von
  * der Geräteuhr. „Fertig" schickt den Eintrag an den Sentiment-Agenten
- * (`POST /analyze`), der ihn in SQLite speichert und direkt emotional
- * auswertet – davon leben später Einblicke & Wochenrückblick.
+ * (`POST /analyze`), der ihn sofort in SQLite speichert und die emotionale
+ * Auswertung als Hintergrund-Task nachzieht – davon leben später Einblicke
+ * & Wochenrückblick. Ein Entwurf wird fortlaufend in AsyncStorage gesichert
+ * und beim Speichern/Verwerfen geleert.
  *
  * Prompt-Integration:
  * - PromptAssistant kapselt Bubble, Fragen-Liste und Consent-Banner
@@ -17,7 +19,7 @@
  * - Mikro diktiert per Web Speech API auf Deutsch in den Eintrag
  * - Stimmung wird oben unterm Datum gewählt (MoodBar), nicht mehr im Footer
  */
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -41,7 +43,8 @@ import {
   MoodBar,
   PromptAssistant,
 } from '../components/entry';
-import { Block, newBlockId } from '../components/entry/BlockEditor';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Block, BlockEditorHandle, newBlockId } from '../components/entry/BlockEditor';
 import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
 import { useDictation } from '../hooks/useDictation';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
@@ -50,14 +53,9 @@ import { notifyOnNewPatterns } from '../services/notifications';
 import { colors, moodColor, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
-const now = new Date();
-const dateLabel = new Intl.DateTimeFormat('de-DE', {
-  weekday: 'long',
-  day: 'numeric',
-  month: 'long',
-  year: 'numeric',
-}).format(now);
-const timeLabel = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' }).format(now);
+// Entwurf überlebt Reload/App-Neustart; wird bei Speichern/Verwerfen geleert.
+const DRAFT_KEY = 'clarity.entryDraft';
+type Draft = { title: string; blocks: Block[]; mood: MoodLevel | null };
 
 type Props = { onDone?: () => void };
 
@@ -72,6 +70,57 @@ export default function EntryScreen({ onDone }: Props) {
   const [saving, setSaving] = useState(false);
   const [formatOpen, setFormatOpen] = useState(false);
   const [images, setImages] = useState<string[]>([]);
+  const editorRef = useRef<BlockEditorHandle>(null);
+
+  // Datum/Uhrzeit pro Öffnen des Editors, nicht pro App-Start (sonst zeigt
+  // ein abends geschriebener Eintrag die Uhrzeit vom Morgen).
+  const { dateLabel, timeLabel } = useMemo(() => {
+    const now = new Date();
+    return {
+      dateLabel: new Intl.DateTimeFormat('de-DE', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+      }).format(now),
+      timeLabel: new Intl.DateTimeFormat('de-DE', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(now),
+    };
+  }, []);
+
+  // Entwurf wiederherstellen (einmalig beim Öffnen).
+  useEffect(() => {
+    AsyncStorage.getItem(DRAFT_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        const draft: Draft = JSON.parse(raw);
+        if (draft.title) setTitle(draft.title);
+        if (draft.blocks?.length) {
+          setBlocks(draft.blocks);
+          setActiveBlockId(draft.blocks[draft.blocks.length - 1].id);
+        }
+        if (draft.mood) setMood(draft.mood);
+      })
+      .catch(() => {
+        /* defekter Entwurf → einfach leer starten */
+      });
+  }, []);
+
+  // Entwurf fortlaufend sichern (entprellt); leerer Editor räumt ihn weg.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const hasText = title.trim() || blocks.some((b) => b.text.trim());
+      if (!hasText) {
+        AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+        return;
+      }
+      const draft: Draft = { title, blocks, mood };
+      AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft)).catch(() => {});
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [title, blocks, mood]);
 
   // Die „Aa"-Leiste zeigt und ändert das Format der Zeile mit dem Cursor
   const activeBlock = blocks.find((b) => b.id === activeBlockId) ?? blocks[blocks.length - 1];
@@ -121,6 +170,8 @@ export default function EntryScreen({ onDone }: Props) {
     else dictation.start();
   };
 
+  const discardDraft = () => AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
+
   const handleDone = async () => {
     const text = [title.trim(), bodyText.trim()].filter(Boolean).join('\n\n');
     if (!text) {
@@ -130,7 +181,10 @@ export default function EntryScreen({ onDone }: Props) {
 
     setSaving(true);
     try {
+      // Speichert den Eintrag sofort; die Sentiment-Analyse läuft im Backend
+      // als Hintergrund-Task – die Antwort kommt ohne LLM-Wartezeit.
       await analyzeEntry(text, mood ?? undefined);
+      discardDraft();
       // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert).
       // Der Agent liest die echten Eintraege der letzten 7 Tage aus der DB.
       // Danach ggf. eine lokale Push bei neu erkanntem Muster/Trigger.
@@ -164,28 +218,43 @@ export default function EntryScreen({ onDone }: Props) {
     }
     if (Platform.OS === 'web') {
       const confirm = (globalThis as { confirm?: (msg: string) => boolean }).confirm;
-      if (!confirm || confirm('Eintrag verwerfen? Dein Text wird nicht gespeichert.')) onDone?.();
+      if (!confirm || confirm('Eintrag verwerfen? Dein Text wird nicht gespeichert.')) {
+        discardDraft();
+        onDone?.();
+      }
       return;
     }
     Alert.alert('Eintrag verwerfen?', 'Dein Text wird nicht gespeichert.', [
       { text: 'Weiter schreiben' },
-      { text: 'Verwerfen', style: 'destructive', onPress: () => onDone?.() },
+      {
+        text: 'Verwerfen',
+        style: 'destructive',
+        onPress: () => {
+          discardDraft();
+          onDone?.();
+        },
+      },
     ]);
   };
 
+  // Frage als eigene neue Zeile ans Ende des Eintrags
+  const appendPrompt = (prompt: string) =>
+    setBlocks((prev) => [
+      ...prev,
+      { id: newBlockId(), text: `💭 ${prompt}`, format: DEFAULT_FORMAT },
+    ]);
+
   const handlePromptSelect = (prompt: string) => {
-    // Füge die Frage zum Text hinzu oder zeige sie in einem Modal
+    // Alert mit Buttons ist auf Web ein No-op (wie bei handleClose) – dort
+    // stattdessen window.confirm, sonst wäre die Übernahme im Browser tot.
+    if (Platform.OS === 'web') {
+      const confirm = (globalThis as { confirm?: (msg: string) => boolean }).confirm;
+      if (!confirm || confirm(`${prompt}\n\nIn den Eintrag aufnehmen?`)) appendPrompt(prompt);
+      return;
+    }
     Alert.alert('Reflektive Frage', prompt, [
       { text: 'Schließen' },
-      {
-        text: 'In Eintrag aufnehmen',
-        // Frage als eigene neue Zeile ans Ende des Eintrags
-        onPress: () =>
-          setBlocks((prev) => [
-            ...prev,
-            { id: newBlockId(), text: `💭 ${prompt}`, format: DEFAULT_FORMAT },
-          ]),
-      },
+      { text: 'In Eintrag aufnehmen', onPress: () => appendPrompt(prompt) },
     ]);
   };
 
@@ -222,15 +291,24 @@ export default function EntryScreen({ onDone }: Props) {
             placeholder="Worum geht's heute?"
             placeholderTextColor={colors.textFaint}
             style={styles.title}
+            returnKeyType="next"
+            onSubmitEditing={() => editorRef.current?.focusFirst()}
           />
 
           <EntryImages
             uris={images}
             onRemove={(uri) => setImages((prev) => prev.filter((u) => u !== uri))}
           />
+          {images.length > 0 ? (
+            <Text style={styles.imagesHint}>
+              Bilder bleiben nur in dieser Schreibsitzung – sie werden nicht mit
+              dem Eintrag gespeichert.
+            </Text>
+          ) : null}
 
           <View style={styles.editor}>
             <BlockEditor
+              ref={editorRef}
               blocks={blocks}
               setBlocks={setBlocks}
               onActiveIdChange={setActiveBlockId}
@@ -269,11 +347,12 @@ export default function EntryScreen({ onDone }: Props) {
             Padding, deshalb bei offener Tastatur selbst mit anheben. */}
         <View style={[styles.assistant, keyboardOpen && { bottom: keyboardHeight + 4 }]}>
           {/* Orb übernimmt die Farbe der gewählten Stimmung; beim Tippen
-              nimmt er sich zurück und wird nur mit Empfehlung präsent */}
+              und bei offenem Format-Panel nimmt er sich zurück und wird
+              nur mit Empfehlung präsent */}
           <PromptAssistant
             journalText={bodyText}
             moodTint={mood ? moodColor[mood] : undefined}
-            compact={keyboardOpen}
+            compact={keyboardOpen || formatOpen}
             onSelectPrompt={handlePromptSelect}
           />
         </View>
@@ -322,13 +401,18 @@ const styles = StyleSheet.create({
     padding: 0,
     ...noOutline,
   },
+  // Ehrlicher Hinweis: Bilder werden (noch) nicht persistiert
+  imagesHint: { fontSize: 12, lineHeight: 16, color: colors.textFaint, marginTop: 6 },
   // Zeilen-Blöcke: Größe/Farbe/Font je Zeile kommen aus dem BlockEditor
   editor: {
     marginTop: 12,
   },
   // Gesprochener Satz, solange er noch nicht final erkannt ist
   interim: { opacity: 0.45, marginTop: 4 },
-  editorBar: { paddingBottom: 2 },
+  // zIndex: Editor-Leiste samt Format-Panel liegt ÜBER dem Prompt-Orb –
+  // klappt das Panel auf, verschwindet der (kleine) Orb dahinter statt
+  // es zu überlagern.
+  editorBar: { paddingBottom: 2, zIndex: 2 },
   // Format-Panel als weiche Karte über der Pill-Leiste
   formatPanel: {
     marginHorizontal: 20,
