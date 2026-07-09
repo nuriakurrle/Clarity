@@ -18,6 +18,7 @@ import { Bullet, QuoteBlock, MoodMirrorBlob } from '../components/home';
 import { Tag } from '../components/insight';
 import {
   Digest,
+  EntryRecord,
   PatternResult,
   fetchEntries,
   fetchLatestDigest,
@@ -43,6 +44,7 @@ type Props = { onWrite?: () => void };
 export default function HomeScreen({ onWrite }: Props) {
   const [digest, setDigest] = useState<Digest | null>(null);
   const [pattern, setPattern] = useState<PatternResult | null>(null);
+  const [entries, setEntries] = useState<EntryRecord[]>([]);
   const [offline, setOffline] = useState(false);
   // Sichtbare Hoehe, damit der Begruessungs-Hero den ersten Screen ganz fuellt.
   const [viewportH, setViewportH] = useState(0);
@@ -72,6 +74,7 @@ export default function HomeScreen({ onWrite }: Props) {
     // MoodMirrorBlob: pro Eintrag, valence → 5-Stufen-Level).
     fetchEntries()
       .then((res) => {
+        setEntries(res.entries ?? []);
         const counts = new Map<MoodLevel, number>();
         for (const e of res.entries ?? []) {
           if (e.valence == null || !isWithinLastWeek(e.created_at)) continue;
@@ -103,24 +106,31 @@ export default function HomeScreen({ onWrite }: Props) {
       : null;
   const observations = activePattern?.observations ?? [];
   // Themen mit Häufigkeit ("Uni 5×"), Personen ohne Zähler; nach Label dedupliziert.
+  // Wie oft ein Label in den Einträgen der letzten Woche vorkommt – so bekommen
+  // auch Personen (die der Pattern-Agent ohne Zähler liefert, z. B. Mama) eine Zahl.
+  const countInWeek = (label: string) =>
+    entries.filter(
+      (e) =>
+        isWithinLastWeek(e.created_at) &&
+        (e.content ?? '').toLowerCase().includes(label.toLowerCase()),
+    ).length;
+
   const themeCounts = activePattern?.theme_counts ?? {};
   const tagItems = activePattern
     ? [
-        ...(activePattern.recurring_themes ?? []).map((label) => ({
-          label,
-          count: themeCounts[label] && themeCounts[label] > 0 ? themeCounts[label] : undefined,
-        })),
-        ...(activePattern.recurring_people ?? []).map((label) => ({ label, count: undefined })),
+        ...(activePattern.recurring_themes ?? []).map((label) => {
+          const c =
+            themeCounts[label] && themeCounts[label] > 0 ? themeCounts[label] : countInWeek(label);
+          return { label, count: c > 0 ? c : undefined };
+        }),
+        ...(activePattern.recurring_people ?? []).map((label) => {
+          const c = countInWeek(label);
+          return { label, count: c > 0 ? c : undefined };
+        }),
       ].filter((item, i, arr) => arr.findIndex((x) => x.label === item.label) === i)
     : [];
   const themeCount = activePattern?.recurring_themes?.length ?? 0;
   const hasPattern = observations.length > 0 || tagItems.length > 0;
-
-  // Wochenrückblick (aus dem Insight-Screen hierher verschoben): die "growth"-
-  // Punkte des Digest-Agents; falls leer, die Zusammenfassung als Fallback.
-  const digestReview = digest
-    ? (digest.growth?.length ? digest.growth : [digest.summary]).filter(Boolean)
-    : [];
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -189,22 +199,14 @@ export default function HomeScreen({ onWrite }: Props) {
             <SectionLabel text="Eine Frage zum Weitertragen" />
             <View style={styles.sectionContent}>
               <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} typingActive={typeQuestion} />
-              {digest?.affirmation ? (
-                <Text style={styles.affirmation}>{digest.affirmation}</Text>
-              ) : null}
             </View>
           </View>
 
-          {digestReview.length > 0 ? (
+          {digest?.affirmation ? (
             <View style={styles.spacer32}>
-              <SectionLabel text="Wochenrückblick" />
+              <SectionLabel text="Ermutigung" />
               <View style={styles.sectionContent}>
-                <Text style={styles.reviewIntro}>Zusammengefasst aus deinen Einträgen</Text>
-                {digestReview.map((g, i) => (
-                  <View key={i} style={styles.bulletSpacing}>
-                    <Bullet text={g} />
-                  </View>
-                ))}
+                <Text style={styles.affirmation}>{digest.affirmation}</Text>
               </View>
             </View>
           ) : null}
@@ -227,7 +229,6 @@ const styles = StyleSheet.create({
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   themeCard: { marginTop: 12 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
-  reviewIntro: { fontSize: 13, lineHeight: 19, color: colors.textMuted, marginBottom: 4 },
   affirmation: {
     fontFamily: serif,
     fontStyle: 'italic',
