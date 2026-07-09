@@ -8,6 +8,7 @@ export { ScreenHeader } from './ScreenHeader';
 export { AuraHeader } from './AuraHeader';
 export { PrivacyNote } from './PrivacyNote';
 export { Card } from './Card';
+export { HighlightText } from './HighlightText';
 export { SectionLabel } from './SectionLabel';
 export { BottomNav } from './BottomNav';
 export type { TabKey, ActiveKey } from './BottomNav';
