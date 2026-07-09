@@ -1,5 +1,6 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
 import os, json, re, logging, sys
+from collections import defaultdict
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,7 +13,7 @@ sys.path.insert(0, '/app/shared')
 from database import (
     init_db, save_sentiment, save_entry, get_mood_profile,
     save_mood_profile, calculate_mood_trend, get_emotional_summary,
-    get_entries_with_sentiment
+    get_entries_with_sentiment, get_db_connection
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -193,6 +194,114 @@ async def get_emotional_summary_endpoint(
     except Exception as e:
         logger.error(f"❌ Error generating summary: {e}")
         raise
+
+# --- Key Themes (Schlagwörter) -----------------------------------------------
+
+# Füllwörter, die als Thema nichts aussagen (Artikel, Pronomen, Hilfsverben,
+# allgemeine Verben/Adjektive/Adverbien, generische Zeit-/Füllbegriffe).
+# Bewusst großzügig, damit nur inhaltstragende Wörter als Thema übrig bleiben.
+STOPWORDS = {
+    # Artikel / Pronomen / Konjunktionen / Präpositionen
+    "aber", "auch", "auf", "aus", "bei", "bin", "bist", "das", "dass", "dann",
+    "dein", "deine", "dem", "den", "des", "die", "dies", "diese", "dieser",
+    "dieses", "diesem", "doch", "dort", "durch", "ein", "eine", "einen", "einem",
+    "einer", "eines", "etwas", "euch", "euer", "für", "fuer", "gegen", "hier",
+    "ihr", "ihre", "immer", "jede", "jeden", "jetzt", "kein", "keine", "man",
+    "mein", "meine", "meinem", "meinen", "mich", "mir", "mit", "nach", "nicht",
+    "nichts", "noch", "nun", "oder", "ohne", "schon", "sehr", "sich", "sie",
+    "sind", "sonst", "über", "ueber", "und", "uns", "unser", "unter", "viel",
+    "viele", "vom", "von", "vor", "was", "weg", "weil", "weiter", "wenn", "wie",
+    "wieder", "wir", "wird", "wirst", "wo", "zum", "zur", "zwar", "zwischen",
+    # Hilfs-/Allerweltsverben
+    "habe", "haben", "hab", "hat", "hatte", "hatten", "kann", "kannst", "konnte",
+    "muss", "musste", "werde", "werden", "wurde", "wollen", "wollte", "würde",
+    "wuerde", "gemacht", "macht", "machen", "geht", "gehen", "ging", "kam",
+    "kommen", "kommt", "denke", "denken", "fühle", "fuehle", "fühlt", "fuehlt",
+    "gewesen", "geworden", "verbracht", "verbringe", "brauche", "brauchen",
+    "wächst", "waechst", "frisst", "sitzt", "sitze", "gesessen", "telefoniert",
+    "getan", "läuft", "laeuft", "bleibt", "bleiben", "fällt", "faellt",
+    "gekocht", "kochen", "gelesen", "lesen", "gesehen", "gesagt", "geredet",
+    "gehört", "gehoert", "geschrieben",
+    # Allgemeine Adjektive / Adverbien / Füllwörter
+    "eigentlich", "wirklich", "ganz", "ganze", "ganzen", "gerade", "einfach",
+    "gut", "guten", "gute", "guter", "schön", "schoen", "schöne", "richtig",
+    "besonderes", "besondere", "okay", "mittel", "solche", "solcher", "solches",
+    "genug", "kaum", "dringend", "endlich", "danach", "abend", "abends", "morgen",
+    "gestern", "heute", "immer", "meist", "meistens", "langer", "langen", "lange",
+    "kurz", "kurzer", "neuer", "neue", "voll", "voller", "mehr", "wenig",
+    "ruhig", "ruhige", "ruhiger", "ruhigen", "ruhiges", "still", "stiller",
+    # Generische Zeit-/Füllbegriffe (kein aussagekräftiges Thema)
+    "tag", "tage", "tagen", "woche", "wochen", "zeit", "mal", "stimmung",
+    "gefühl", "gefuehl", "dinge", "sachen", "menschen",
+    # Englisch (falls englische Einträge dabei sind)
+    "the", "and", "for", "that", "with", "this", "was", "have", "has", "are",
+    "but", "not", "you", "your", "from", "they", "them", "just", "really",
+    "about", "would", "could", "some", "very", "much", "more", "been", "being",
+}
+
+
+def _entries_with_valence(days: int) -> list:
+    """Einträge der letzten `days` Tage mit der Valenz ihrer neuesten Analyse.
+
+    Basis für die Key-Themes: pro Eintrag Text + Stimmungswert, damit jedes
+    Schlagwort nach der durchschnittlichen Stimmung eingefärbt werden kann.
+    """
+    conn = get_db_connection()
+    rows = conn.execute(
+        """SELECT e.content, s.valence
+           FROM entries e
+           LEFT JOIN sentiment_analysis s ON s.id = (
+               SELECT MAX(id) FROM sentiment_analysis WHERE entry_id = e.id
+           )
+           WHERE e.created_at >= datetime('now', ? || ' days')""",
+        (f'-{days}',),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/keywords")
+async def keywords(days: int = 30, limit: int = 10, min_len: int = 4):
+    """Häufigste, inhaltstragende Schlagwörter der letzten `days` Tage.
+
+    Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (ohne
+    Stoppwörter), und färbt jedes Wort nach der durchschnittlichen Stimmung
+    dieser Einträge ein. Rein deterministisch – kein LLM, also sofort da.
+    """
+    rows = _entries_with_valence(days)
+
+    doc_freq = defaultdict(int)     # in wie vielen Einträgen kommt das Wort vor
+    valence_sum = defaultdict(float)
+    valence_n = defaultdict(int)
+
+    for row in rows:
+        content = (row.get("content") or "").lower()
+        valence = row.get("valence")
+        # Pro Eintrag jedes Wort nur einmal (Dokument-Frequenz), Stoppwörter raus.
+        words = {
+            w for w in re.split(r"[^a-zäöüß]+", content)
+            if len(w) >= min_len and w not in STOPWORDS
+        }
+        for w in words:
+            doc_freq[w] += 1
+            if valence is not None:
+                valence_sum[w] += valence
+                valence_n[w] += 1
+
+    # Nur Wörter, die in mindestens zwei Einträgen vorkommen -> echte "Themen".
+    candidates = {w: c for w, c in doc_freq.items() if c >= 2} or dict(doc_freq)
+    ranked = sorted(candidates.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:limit]
+
+    keywords_out = [
+        {
+            "word": word,
+            "count": count,
+            "valence": round(valence_sum[word] / valence_n[word], 3) if valence_n[word] else 0.0,
+        }
+        for word, count in ranked
+    ]
+    return {"days": days, "entry_count": len(rows), "keywords": keywords_out}
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

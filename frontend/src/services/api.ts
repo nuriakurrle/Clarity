@@ -136,6 +136,21 @@ export type PatternResult = {
   status?: 'no_data' | 'insufficient_data';
 };
 
+/** Ein Schlagwort aus den Einträgen (Pattern-Agent, GET /keywords).
+ *  `count` = in wie vielen Einträgen es vorkommt, `valence` = durchschnittliche
+ *  Stimmung dieser Einträge (-1..+1) → bestimmt die Farbe der „Key-Themes"-Pille. */
+export type KeywordItem = {
+  word: string;
+  count: number;
+  valence: number;
+};
+
+export type KeywordsResult = {
+  days: number;
+  entry_count: number;
+  keywords: KeywordItem[];
+};
+
 /** Ergebnis des Prompt-Agents (reflektive Fragen). */
 export type PromptResponse = {
   question: string;
@@ -181,6 +196,12 @@ export function fetchLatestDigest(): Promise<Digest> {
 /** Zuletzt erkannte wiederkehrende Muster & Trigger (Pattern-Agent). */
 export function fetchLatestPatterns(): Promise<PatternResult> {
   return request<PatternResult>('pattern', '/patterns/latest');
+}
+
+/** Meistgenutzte Schlagwörter der letzten `days` Tage inkl. Stimmungswert
+ *  (Sentiment-Agent, GET /keywords). Deterministisch – kommt sofort, kein LLM. */
+export function fetchKeywords(days = 30, limit = 10): Promise<KeywordsResult> {
+  return request<KeywordsResult>('sentiment', `/keywords?days=${days}&limit=${limit}`);
 }
 
 /** Stößt eine Musteranalyse über die letzten `days` Tage an (Pattern-Agent).

@@ -70,10 +70,12 @@ export function SearchEntryCard({ date, title, snippet, valence, highlight, onPr
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.warmSofter,
+    backgroundColor: colors.surface,
     borderRadius: 18,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   headerRow: {
     flexDirection: 'row',
@@ -81,14 +83,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 6,
   },
-  date: { fontSize: 12, color: colors.warm, fontWeight: '600' },
+  date: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
   moodBadge: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   moodDot: { width: 8, height: 8, borderRadius: 4 },
   moodText: { fontSize: 12, color: colors.textMuted, fontWeight: '500' },
   title: { fontFamily: serif, fontSize: 18, color: colors.text, marginBottom: 4 },
   snippet: { fontSize: 14, lineHeight: 20, color: colors.textMuted },
   match: {
-    backgroundColor: colors.warmHighlight,
+    backgroundColor: colors.primarySoft,
     color: colors.text,
     fontWeight: '600',
   },
