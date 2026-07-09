@@ -41,21 +41,19 @@ pattern_agent = Agent(
 
 
 def _language_directive(text: str) -> str:
-    """Erkennt grob deutsche Eintraege und erzwingt deutsche Ausgabe.
+    """Erzwingt IMMER deutsche Ausgabe.
 
-    Das kleine Modell (llama3.2) ignoriert eine englische 'antworte auf Deutsch'-
-    Regel oft. Die Anweisung *auf Deutsch* ganz oben ist ein deutlich staerkeres
-    Signal.
+    Clarity ist eine deutschsprachige App; das kleine Modell (llama3.2) mischt
+    ansonsten gerne Englisch und Deutsch. Die Anweisung *auf Deutsch* ganz oben
+    ist das staerkste Signal und wird daher unbedingt (nicht mehr nur bei genug
+    deutschen Markern) vorangestellt. `text` bleibt als Parameter erhalten, damit
+    die Aufrufstelle unveraendert bleibt.
     """
-    lowered = text.lower()
-    markers = ["ä", "ö", "ü", "ß", " der ", " die ", " und ", " ich ",
-               " nicht ", " mit ", " wieder ", " heute ", " mir ", " weil "]
-    hits = sum(1 for m in markers if m in lowered)
-    if hits >= 2:
-        return ("WICHTIG: Antworte AUSSCHLIESSLICH auf Deutsch. Alle Textwerte im "
-                "JSON (Themen, observations, summary usw.) muessen deutsch sein. "
-                "Nur die JSON-Schluessel und mood_trend bleiben englisch.\n\n")
-    return ""
+    return ("WICHTIG: Antworte AUSSCHLIESSLICH auf Deutsch. Alle Textwerte im "
+            "JSON (recurring_themes, recurring_people, situations, triggers, "
+            "language_shifts, observations, summary) muessen vollstaendig deutsch "
+            "sein - kein einziges englisches Wort, keine Mischung. Nur die "
+            "JSON-Schluessel und der Wert von mood_trend bleiben englisch.\n\n")
 
 
 def build_pattern_prompt(entries_text: str, sentiment_hint: str = "") -> str:
@@ -87,13 +85,13 @@ Respond ONLY with valid JSON (no markdown, no explanations) in exactly this stru
 }}
 
 Rules:
-- Write ALL text values in the SAME language as the journal entries (German entries -> German output). Only the JSON keys and mood_trend stay in English.
+- Write ALL text values in German only - no English words, no mixing. Only the JSON keys and mood_trend stay in English.
 - Only include things that actually RECUR across entries; leave arrays empty if nothing recurs.
 - Phrase everything as neutral observations, never as judgements, advice or diagnosis.
 - Derive every value from the actual entries. Never output placeholder or example values.
 - mood_trend must be one of exactly: improving, stable, declining.
-- observations: 1-3 short sentences in the reader's own perspective ("you"), each a
+- observations: 1-3 short GERMAN sentences in the reader's own perspective ("du"), each a
   single concrete pattern. Examples of the STYLE (do not copy the content):
-  "Work came up several times, often linked to pressure." /
-  "Early-week entries used words like tired; by the weekend the tone shifted to grateful."
+  "Arbeit kam mehrmals vor, oft verbunden mit Druck." /
+  "Anfang der Woche nutztest du Woerter wie muede; zum Wochenende wurde der Ton dankbarer."
 """
