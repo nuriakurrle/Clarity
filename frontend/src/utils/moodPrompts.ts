@@ -84,3 +84,50 @@ const DAY_LINES: Record<MoodLevel, string> = {
 export function dayMoodLine(level: MoodLevel): string {
   return DAY_LINES[level];
 }
+
+/**
+ * Beschreibende Zeile zur GESAMTEN Woche, abgeleitet aus der dominanten
+ * Kategorie der Wochen-Aggregation. Gleiche Tonalitäts-Regeln wie oben:
+ * Aussage statt Diagnose, kein Gesprächspartner-Ton.
+ */
+const WEEK_LINES: Record<MoodLevel, string> = {
+  bad: 'Eine schwere Woche.',
+  low: 'Eine eher gedrückte Woche.',
+  neutral: 'Eine ausgeglichene, ruhige Woche.',
+  good: 'Eine überwiegend gute Woche.',
+  great: 'Eine überwiegend leichte, schöne Woche.',
+};
+
+/** Gemischte Woche mit echtem Kontrast (eine klar positive + eine klar negative Kategorie). */
+const WEEK_MIXED_CONTRAST = 'Eine Woche mit Höhen und Tiefen.';
+/** Gemischt, aber ohne starken Kontrast (benachbarte Kategorien, z. B. gut + neutral). */
+const WEEK_MIXED_ADJACENT = 'Eine Woche ohne klare Richtung.';
+
+/**
+ * Position auf der Stimmungsskala (positiv > 0, negativ < 0, neutral = 0).
+ * Das Vorzeichen entscheidet, ob zwei Kategorien „über die Mitte" liegen.
+ */
+const SCALE_POS: Record<MoodLevel, number> = {
+  great: 2,
+  good: 1,
+  neutral: 0,
+  low: -1,
+  bad: -2,
+};
+
+/**
+ * Liefert die Wochen-Zeile aus den Kategorie-Anteilen (absteigend sortiert).
+ * Liegen die Top-2 näher als MIXED_MARGIN zusammen, gilt die Woche als gemischt:
+ * „Höhen und Tiefen" nur, wenn die beiden Kategorien tatsächlich über die Mitte
+ * liegen (eine positiv, eine negativ) – sonst der neutralere „ohne klare
+ * Richtung"-Satz. Ohne Daten: leerer String (Aufrufer blendet dann nichts ein).
+ */
+export function weekMoodLine(entries: { level: MoodLevel; share: number }[]): string {
+  if (!entries.length) return '';
+  if (entries.length > 1 && entries[0].share - entries[1].share < MIXED_MARGIN) {
+    const [a, b] = entries;
+    const contrast = SCALE_POS[a.level] * SCALE_POS[b.level] < 0;
+    return contrast ? WEEK_MIXED_CONTRAST : WEEK_MIXED_ADJACENT;
+  }
+  return WEEK_LINES[entries[0].level];
+}

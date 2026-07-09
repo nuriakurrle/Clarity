@@ -1,12 +1,16 @@
 /**
  * GelBubble – einzelne, EINFARBIGE Mood-Bubble im Look des Home-Blobs:
- * satter RadialGradient + Gauß-Blur (weiche Kante), Grain-Textur und kleiner
- * Glanzpunkt – alles unter der gemeinsamen FadeMask, damit Farbe UND Korn
- * synchron ins Nichts verlaufen (kein Kasten-Bug, siehe BlobEffects.tsx).
+ * satter RadialGradient + Gauß-Blur (weiche Kante) und Grain-Textur, alles
+ * unter der gemeinsamen FadeMask, damit Farbe UND Korn synchron ins Nichts
+ * verlaufen (kein Kasten-Bug, siehe BlobEffects.tsx).
  *
- * Anders als der Home-Blob mischt sie nichts: genau eine MOOD_COLORS-Farbe
- * pro Bubble, kein Label – Bedeutung entsteht aus Farbe (Mood) und
- * Größe (Anteil am Tag).
+ * Bewusst FLACH: KEIN Glanzpunkt, KEIN Schatten-Akzent – anders als der
+ * Home-Blob (Gel-Kissen) soll die Kalender-Bubble ein reiner, weicher
+ * Farbfleck ohne 3D-Kugel-Optik sein. Der übrige Filter-Stack (Blur-Ratio,
+ * FadeMask, saturate, Grain, Gradient-Stops) ist identisch zum Home-Blob.
+ *
+ * Sie mischt nichts: genau eine MOOD_COLORS-Farbe pro Bubble, kein Label –
+ * Bedeutung entsteht aus Farbe (Mood) und Größe (Anteil).
  */
 import React, { useId } from 'react';
 import Svg, {
@@ -33,10 +37,13 @@ type Props = {
 export function GelBubble({ color, size }: Props) {
   // Eindeutige IDs pro Instanz – viele Bubbles teilen sich sonst die Defs.
   const uid = useId().replace(/[^a-zA-Z0-9]/g, '');
-  const vivid = saturate(color, 1.3); // gleicher Boost wie MoodMirrorBlob
+  // Bewusst zurückgenommen (1.15): der Kern-Kreis + das Plateau liefern schon
+  // genug Dichte, hohe Sättigung wirkte darüber grell/plakativ. Ziel ist die
+  // weiche, leicht gedämpfte Home-Blob-Anmutung, nicht maximale Sättigung.
+  const vivid = saturate(color, 1.15);
   const C = size / 2;
-  // Exakt das Home-Blob-Verhältnis: stdDeviation 32 bei 320er-Canvas = 10 %.
-  const blur = Math.max(5, size * 0.1);
+  // Exakt das Home-Blob-Verhältnis: stdDeviation 28 bei 320er-Canvas = 8,75 %.
+  const blur = Math.max(4, size * 0.0875);
 
   return (
     <Svg width={size} height={size}>
@@ -44,18 +51,23 @@ export function GelBubble({ color, size }: Props) {
         <Filter id={`gb-blur-${uid}`}>
           <FeGaussianBlur in="SourceGraphic" stdDeviation={blur} />
         </Filter>
-        {/* Gradient-Stops exakt wie MoodMirrorBlob (0 % / 78 % / 100 %) */}
+        {/* Äußere Schicht: Plateau bis 83 % (Kompromiss – kein blasser Randring
+            wie bei den ursprünglichen 78 %, aber auch nicht gleichmäßig knallig
+            bis fast an den Rand wie bei 88 %). Rand-Opacity 0.78. */}
         <RadialGradient id={`gb-fill-${uid}`} cx="50%" cy="50%" r="50%">
           <Stop offset="0%" stopColor={vivid} stopOpacity={1} />
-          <Stop offset="78%" stopColor={vivid} stopOpacity={0.98} />
-          <Stop offset="100%" stopColor={vivid} stopOpacity={0.65} />
+          <Stop offset="83%" stopColor={vivid} stopOpacity={0.98} />
+          <Stop offset="100%" stopColor={vivid} stopOpacity={0.78} />
         </RadialGradient>
-        {/* Glanzpunkt bewusst dezenter als zuvor: Lichtreflex im Gel,
-            keine glänzende Murmel. */}
-        <RadialGradient id={`gb-shine-${uid}`} cx="50%" cy="50%" r="50%">
-          <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.3} />
-          <Stop offset="55%" stopColor="#FFFFFF" stopOpacity={0.12} />
-          <Stop offset="100%" stopColor="#FFFFFF" stopOpacity={0} />
+        {/* Innerer Kern-Kreis: voll deckend im Zentrum, weich bis 0 an seiner
+            eigenen Kante. Bildet die dicht ums Zentrum liegenden Satelliten des
+            Home-Blobs nach und erzeugt so die satte Kern-Tiefe. Wird mit derselben
+            Farbe, demselben Blur und derselben FadeMask gerendert wie die Außen-
+            schicht → verschmilzt nahtlos, kein sichtbarer zweiter Kreis. */}
+        <RadialGradient id={`gb-core-${uid}`} cx="50%" cy="50%" r="50%">
+          <Stop offset="0%" stopColor={vivid} stopOpacity={0.85} />
+          <Stop offset="55%" stopColor={vivid} stopOpacity={0.85} />
+          <Stop offset="100%" stopColor={vivid} stopOpacity={0} />
         </RadialGradient>
         <Pattern
           id={`gb-grain-${uid}`}
@@ -74,14 +86,17 @@ export function GelBubble({ color, size }: Props) {
               ganzen Canvas – die native Filter-Region ignoriert filterUnits
               und würde das geblurrte Ergebnis sonst rechteckig abschneiden. */}
           <Rect x={0} y={0} width={size} height={size} fill="#FFFFFF" fillOpacity={0.004} />
-          {/* 88 % Canvas-Füllung wie die Home-Blob-Schichten (r bis 0.44–0.48
-              des Canvas) – die weiche Außenkante macht die FadeMask. */}
+          {/* Äußere Schicht (r bis ~0.44 des Canvas) – weiche Kante via FadeMask. */}
           <Circle cx={C} cy={C} r={size * 0.44} fill={`url(#gb-fill-${uid})`} />
+          {/* Kern-Kreis darüber, gleiche Gruppe → gleicher Blur + gleiche Maske.
+              Vertieft die Farbe im Zentrum, verschmilzt durch den weichen Rand
+              nahtlos mit der Außenschicht. */}
+          <Circle cx={C} cy={C} r={size * 0.26} fill={`url(#gb-core-${uid})`} />
         </G>
-        {/* Grain über der Farbe, gleiche Maske → läuft synchron aus */}
-        <Circle cx={C} cy={C} r={C} fill={`url(#gb-grain-${uid})`} opacity={0.09} />
-        {/* Glanzpunkt oben links für den Gel-Effekt */}
-        <Circle cx={size * 0.38} cy={size * 0.32} r={size * 0.26} fill={`url(#gb-shine-${uid})`} />
+        {/* Grain über der Farbe, gleiche Maske → läuft synchron aus. Leicht
+            angehoben (0.11), damit die Körnung in der jetzt dichteren Farbfläche
+            als bewusstes Stilelement sichtbar bleibt (wie beim Home-Blob). */}
+        <Circle cx={C} cy={C} r={C} fill={`url(#gb-grain-${uid})`} opacity={0.11} />
       </G>
     </Svg>
   );
