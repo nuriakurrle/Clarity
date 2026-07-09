@@ -116,6 +116,12 @@ export default function HomeScreen({ onWrite }: Props) {
   const themeCount = activePattern?.recurring_themes?.length ?? 0;
   const hasPattern = observations.length > 0 || tagItems.length > 0;
 
+  // Wochenrückblick (aus dem Insight-Screen hierher verschoben): die "growth"-
+  // Punkte des Digest-Agents; falls leer, die Zusammenfassung als Fallback.
+  const digestReview = digest
+    ? (digest.growth?.length ? digest.growth : [digest.summary]).filter(Boolean)
+    : [];
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView
@@ -188,6 +194,20 @@ export default function HomeScreen({ onWrite }: Props) {
               ) : null}
             </View>
           </View>
+
+          {digestReview.length > 0 ? (
+            <View style={styles.spacer32}>
+              <SectionLabel text="Wochenrückblick" />
+              <View style={styles.sectionContent}>
+                <Text style={styles.reviewIntro}>Zusammengefasst aus deinen Einträgen</Text>
+                {digestReview.map((g, i) => (
+                  <View key={i} style={styles.bulletSpacing}>
+                    <Bullet text={g} />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <PrivacyNote style={styles.footerPrivacy} />
@@ -207,6 +227,7 @@ const styles = StyleSheet.create({
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   themeCard: { marginTop: 12 },
   hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
+  reviewIntro: { fontSize: 13, lineHeight: 19, color: colors.textMuted, marginBottom: 4 },
   affirmation: {
     fontFamily: serif,
     fontStyle: 'italic',

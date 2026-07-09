@@ -80,3 +80,17 @@ export function valenceToMoodLevel(valence: number): MoodLevel {
   if (valence >= -0.6) return 'low';
   return 'bad';
 }
+
+/**
+ * Weiche Pastell-Farbe für ein Stimmungs-Schlagwort ("Key Themes").
+ * Nutzt dieselbe 5-stufige Stimmungsskala wie der Entry-Screen (MoodPicker:
+ * schwer → sehr gut), damit die Themen farblich zum Rest der App passen.
+ * Jede Stufe als heller Hintergrund + dunklerer, lesbarer Text.
+ */
+export function keywordTone(valence: number): { bg: string; fg: string } {
+  const base = moodColor[valenceToMoodLevel(valence)];
+  return {
+    bg: mixHex(base, '#FFFFFF', 0.82),
+    fg: mixHex(base, '#1F2421', 0.22),
+  };
+}

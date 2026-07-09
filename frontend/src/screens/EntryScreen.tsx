@@ -36,7 +36,6 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   BlockEditor,
   EditorToolbar,
-  EntryAura,
   EntryImages,
   KeyboardToolbar,
   MoodBar,
@@ -192,8 +191,6 @@ export default function EntryScreen({ onDone }: Props) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      {/* Weiche Farb-Orbs auf Creme – der ruhige „Pause"-Vibe des Screens */}
-      <EntryAura />
       <KeyboardAvoidingView
         style={[styles.flex, keyboardPad > 0 && { paddingBottom: keyboardPad }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -309,8 +306,8 @@ export default function EntryScreen({ onDone }: Props) {
 const noOutline = Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : null;
 
 const styles = StyleSheet.create({
-  // Hintergrund kommt von EntryAura (Creme + Farb-Orbs)
-  safe: { flex: 1 },
+  // Reines Weiß wie die übrigen Screens (früher: Creme-Aura mit Farb-Orbs)
+  safe: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
