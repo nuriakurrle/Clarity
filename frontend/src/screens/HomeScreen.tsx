@@ -10,19 +10,21 @@
  * Bausteine aus `../components/home` (Bullet, QuoteBlock) und der
  * Themen-Chip aus `../components/insight` (Tag).
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, PrivacyNote, SectionLabel } from '../components';
-import { Bullet, QuoteBlock, WelcomeHero } from '../components/home';
+import { Bullet, QuoteBlock, MoodMirrorBlob } from '../components/home';
 import { Tag } from '../components/insight';
 import {
   Digest,
   PatternResult,
+  fetchEntries,
   fetchLatestDigest,
   fetchLatestPatterns,
 } from '../services/api';
 import { colors } from '../theme/colors';
+import { moodColor, MoodLevel, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
 
 const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
@@ -44,6 +46,16 @@ export default function HomeScreen({ onWrite }: Props) {
   const [offline, setOffline] = useState(false);
   // Sichtbare Hoehe, damit der Begruessungs-Hero den ersten Screen ganz fuellt.
   const [viewportH, setViewportH] = useState(0);
+  // Dominante Mood-Farbe der Woche – hauchzarter Tint für die Zitat-Boxen,
+  // damit sich die Digest-Sektion am Blob-Farbschema orientiert.
+  const [weekAccent, setWeekAccent] = useState<string | undefined>();
+  // Typewriter-Trigger: werden true, sobald der jeweilige Block in den
+  // sichtbaren Bereich scrollt (und bleiben true – einmal pro Sitzung).
+  const [typeSummary, setTypeSummary] = useState(false);
+  const [typeQuestion, setTypeQuestion] = useState(false);
+  const bodyY = useRef(0);
+  const summaryY = useRef(0);
+  const questionY = useRef(0);
 
   useEffect(() => {
     fetchLatestDigest()
@@ -56,7 +68,32 @@ export default function HomeScreen({ onWrite }: Props) {
     fetchLatestPatterns()
       .then(setPattern)
       .catch(() => {});
+    // Häufigste Stimmung der letzten 7 Tage bestimmen (gleiche Logik wie im
+    // MoodMirrorBlob: pro Eintrag, valence → 5-Stufen-Level).
+    fetchEntries()
+      .then((res) => {
+        const counts = new Map<MoodLevel, number>();
+        for (const e of res.entries ?? []) {
+          if (e.valence == null || !isWithinLastWeek(e.created_at)) continue;
+          const level = valenceToMoodLevel(e.valence);
+          counts.set(level, (counts.get(level) ?? 0) + 1);
+        }
+        const top = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+        if (top) setWeekAccent(moodColor[top[0]]);
+      })
+      .catch(() => {});
   }, []);
+
+  // Blöcke gelten als "im Viewport", sobald sie zu ~85 % sichtbar werden.
+  const checkInView = (offsetY: number) => {
+    const line = offsetY + viewportH * 0.85;
+    if (!typeSummary && summaryY.current > 0 && line > bodyY.current + summaryY.current) {
+      setTypeSummary(true);
+    }
+    if (!typeQuestion && questionY.current > 0 && line > bodyY.current + questionY.current) {
+      setTypeQuestion(true);
+    }
+  };
 
   // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren".
   // Nur anzeigen, wenn die Analyse aus der letzten Woche stammt.
@@ -85,14 +122,19 @@ export default function HomeScreen({ onWrite }: Props) {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         onLayout={(e) => setViewportH(e.nativeEvent.layout.height)}
+        onScroll={(e) => checkInView(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
       >
-        <WelcomeHero onWrite={onWrite} minHeight={viewportH || undefined} />
+        <MoodMirrorBlob onWrite={onWrite} minHeight={viewportH || undefined} />
 
-        <View style={styles.body}>
+        <View style={styles.body} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
           <SectionLabel text="Tonverlauf" />
           {digest ? (
-            <View style={styles.sectionContent}>
-              <QuoteBlock text={digest.summary} tint="peach" />
+            <View
+              style={styles.sectionContent}
+              onLayout={(e) => (summaryY.current = e.nativeEvent.layout.y)}
+            >
+              <QuoteBlock text={digest.summary} accentColor={weekAccent} typingActive={typeSummary} />
               {digest.highlights.map((h, i) => (
                 <View key={i} style={styles.bulletSpacing}>
                   <Bullet text={h} />
@@ -134,10 +176,13 @@ export default function HomeScreen({ onWrite }: Props) {
             )}
           </View>
 
-          <View style={styles.spacer32}>
+          <View
+            style={styles.spacer32}
+            onLayout={(e) => (questionY.current = e.nativeEvent.layout.y)}
+          >
             <SectionLabel text="Eine Frage zum Weitertragen" />
             <View style={styles.sectionContent}>
-              <QuoteBlock text={FALLBACK_QUESTION} tint="sage" />
+              <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} typingActive={typeQuestion} />
               {digest?.affirmation ? (
                 <Text style={styles.affirmation}>{digest.affirmation}</Text>
               ) : null}

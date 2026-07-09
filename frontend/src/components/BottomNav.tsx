@@ -7,6 +7,12 @@ import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme/colors';
 
+// Dunkle Tab-Bar: schwarzer Grund, weiße Icons (inaktiv gedimmt),
+// FAB als weißer Kreis mit dunklem Plus für maximalen Kontrast.
+const NAV_BG = '#111111';
+const NAV_ICON_ACTIVE = '#FFFFFF';
+const NAV_ICON_INACTIVE = 'rgba(255,255,255,0.55)';
+
 export type TabKey = 'home' | 'search' | 'insight' | 'calendar';
 export type ActiveKey = TabKey | 'entry';
 
@@ -48,7 +54,7 @@ export function BottomNav({ active, onChange, onPressAdd }: Props) {
 
       <View style={styles.fabWrap}>
         <TouchableOpacity style={styles.fab} onPress={onPressAdd} activeOpacity={0.85}>
-          <Ionicons name="add" size={26} color="#fff" />
+          <Ionicons name="add" size={26} color={NAV_BG} />
         </TouchableOpacity>
         <View style={[styles.dot, { opacity: active === 'entry' ? 1 : 0 }]} />
       </View>
@@ -62,7 +68,7 @@ function TabButton({ tab, active, onPress }: { tab: Tab; active: boolean; onPres
       <Ionicons
         name={active ? tab.iconActive : tab.icon}
         size={24}
-        color={active ? colors.text : colors.textFaint}
+        color={active ? NAV_ICON_ACTIVE : NAV_ICON_INACTIVE}
       />
       <View style={[styles.dot, { opacity: active ? 1 : 0 }]} />
     </TouchableOpacity>
@@ -70,7 +76,9 @@ function TabButton({ tab, active, onPress }: { tab: Tab; active: boolean; onPres
 }
 
 const styles = StyleSheet.create({
-  wrap: { backgroundColor: colors.navBg },
+  wrap: { backgroundColor: NAV_BG },
+  // paddingBottom deckt den Home-Indicator-Bereich ab, damit die schwarze
+  // Bar sauber bis zum unteren Rand läuft.
   bar: { flexDirection: 'row', alignItems: 'center', paddingTop: 10, paddingBottom: 24 },
   tab: { flex: 1, alignItems: 'center', gap: 4 },
   fabSlot: { flex: 1 },
@@ -79,7 +87,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: colors.text,
+    backgroundColor: NAV_ICON_ACTIVE,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: colors.shadow,
@@ -88,5 +96,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: colors.warm },
+  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: NAV_ICON_ACTIVE },
 });

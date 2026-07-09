@@ -4,8 +4,8 @@
  * Gemeinsam genutzt von allen Screens, damit das Design konsistent bleibt.
  */
 export const colors = {
-  // Flächen
-  bg: '#F7F6F3',
+  // Flächen (app-weit reines Weiß – Blob-Redesign)
+  bg: '#FFFFFF',
   surface: '#FFFFFF',
   surfaceAlt: '#F1EFEA',
 
@@ -29,12 +29,14 @@ export const colors = {
   warmHighlight: '#E3D3B5',
   navBg: '#FBE4D2',
 
-  // Stimmungs-Palette (von gut nach schlecht)
-  moodGreat: '#5B8A72',
-  moodGood: '#9CC5A1',
-  moodNeutral: '#E3C770',
-  moodLow: '#E0A16B',
-  moodBad: '#C97B7B',
+  // Stimmungs-Palette (von gut nach schlecht) – satte Blob-Farben.
+  // Bewusst dunkler/gesättigter (Tailwind-600 statt -500), damit nach
+  // Blur + Fade im Mood-Blob genug Farbkraft übrig bleibt.
+  moodGreat: '#16A34A', // Grün
+  moodGood: '#0891B2', // Türkis
+  moodNeutral: '#CA8A04', // Gelb
+  moodLow: '#2563EB', // Blau
+  moodBad: '#DC2626', // Rot
 } as const;
 
 export type MoodLevel = 'great' | 'good' | 'neutral' | 'low' | 'bad';

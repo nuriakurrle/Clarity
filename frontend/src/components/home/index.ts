@@ -2,4 +2,4 @@
 export { Bullet } from './Bullet';
 export { QuoteBlock } from './QuoteBlock';
 export { CountPill } from './CountPill';
-export { WelcomeHero } from './WelcomeHero';
+export { MoodMirrorBlob } from './MoodMirrorBlob';
