@@ -16,10 +16,7 @@ build/
 .coverage
 *.log
 db.sqlite3
-# Demo-DB wird versioniert, damit alle im Team identische Seed-Daten haben;
-# alles andere in data/ bleibt lokal.
-/data/*
-!/data/clarity.db
+/data/
 
 # IDEs & AI tools
 .vscode/
