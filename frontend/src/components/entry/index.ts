@@ -9,5 +9,4 @@ export { KeyboardToolbar } from './KeyboardToolbar';
 export { PromptAssistant } from './PromptAssistant';
 export { PromptBubble } from './PromptBubble';
 export { PromptConsentBanner } from './PromptConsentBanner';
-export { ReflectionPrompts } from './ReflectionPrompts';
 export { TopicFilter } from './TopicFilter';
