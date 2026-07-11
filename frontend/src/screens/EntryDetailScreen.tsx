@@ -28,7 +28,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { EntryRecord, updateEntry } from '../services/api';
+import { EntryImages } from '../components/entry';
+import { EntryRecord, deleteEntry, entryImageUrl, updateEntry } from '../services/api';
 import { colors, moodColor, moodLabel, valenceToMoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -45,29 +46,21 @@ function parseCreatedAt(createdAt: string): Date {
 }
 
 /**
- * Überschrift + Fließtext aus dem gespeicherten Inhalt ableiten –
- * dieselbe Logik wie in der Verlaufsliste (SearchScreen), damit ein
- * Eintrag in Liste und Vollansicht identisch betitelt ist.
+ * Überschrift + Fließtext aus dem gespeicherten Inhalt ableiten.
+ *
+ * Nur wenn der Eintrag eine ECHTE Titelzeile hat (kurze erste Zeile mit Text
+ * darunter), gibt es eine Überschrift – sonst bleibt sie leer und der ganze
+ * Inhalt ist Fließtext. Wichtig: Ansicht und Bearbeiten nutzen dieselbe
+ * Aufteilung, damit beim Umschalten nichts „verschwindet" oder der Text
+ * plötzlich in der Überschrift landet (keine gebastelte Kurz-Überschrift
+ * aus den ersten Zeichen des Textes mehr).
  */
 function splitEntry(content: string): { title: string; body: string } {
   const [firstLine, ...rest] = content.split('\n');
-  let title = firstLine.trim();
-  let body = rest.join('\n').trim();
-  if (!body || title.length > 60) {
-    title = title.length > 48 ? `${title.slice(0, 48).trimEnd()}…` : title;
-    body = content.trim();
-  }
+  const title = firstLine.trim();
+  const body = rest.join('\n').trim();
+  if (!body || title.length > 60) return { title: '', body: content.trim() };
   return { title, body };
-}
-
-/**
- * Roh-Aufteilung fürs Bearbeiten: erste Zeile = Titel, Rest = Text –
- * OHNE die Anzeige-Kürzung von splitEntry, damit beim Editieren nichts
- * vom Originaltext verloren geht.
- */
-function splitForEdit(content: string): { title: string; body: string } {
-  const [firstLine, ...rest] = content.split('\n');
-  return { title: firstLine.trim(), body: rest.join('\n').trim() };
 }
 
 export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) {
@@ -75,6 +68,7 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
   const [editTitle, setEditTitle] = useState('');
   const [editBody, setEditBody] = useState('');
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { dateLabel, timeLabel } = useMemo(() => {
     const d = parseCreatedAt(entry.created_at);
@@ -104,13 +98,43 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
   };
 
   const startEditing = () => {
-    const raw = splitForEdit(entry.content);
+    // Exakt dieselbe Aufteilung wie die Ansicht – Überschrift und Text
+    // stehen beim Bearbeiten genau dort, wo sie eben noch angezeigt wurden.
+    const raw = splitEntry(entry.content);
     setEditTitle(raw.title);
     setEditBody(raw.body);
     setEditing(true);
   };
 
   const cancelEditing = () => setEditing(false);
+
+  // Löschen mit Nachfrage – entfernt den Eintrag samt Analyse-Daten in der DB
+  // (DELETE /entries/{id}) und schließt danach die Vollansicht. Verlauf und
+  // Kalender laden beim Schließen ohnehin neu (die Screens remounten).
+  const confirmDelete = () => {
+    const doDelete = async () => {
+      setDeleting(true);
+      try {
+        await deleteEntry(entry.id);
+        onClose?.();
+      } catch {
+        showError(
+          'Der Eintrag konnte nicht gelöscht werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?',
+        );
+        setDeleting(false);
+      }
+    };
+    // Alert mit Buttons ist auf Web ein No-op – dort window.confirm (wie im EntryScreen)
+    if (Platform.OS === 'web') {
+      const confirm = (globalThis as { confirm?: (msg: string) => boolean }).confirm;
+      if (!confirm || confirm('Eintrag endgültig löschen?')) doDelete();
+      return;
+    }
+    Alert.alert('Eintrag löschen?', 'Das kann nicht rückgängig gemacht werden.', [
+      { text: 'Abbrechen' },
+      { text: 'Löschen', style: 'destructive', onPress: doDelete },
+    ]);
+  };
 
   const saveEdit = async () => {
     // Gleiches Format wie beim Anlegen im EntryScreen: Titel + Leerzeile + Text
@@ -152,13 +176,28 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
             </Text>
             <View style={styles.headerIcons}>
               {!editing ? (
-                <TouchableOpacity
-                  onPress={startEditing}
-                  hitSlop={10}
-                  accessibilityLabel="Eintrag bearbeiten"
-                >
-                  <Ionicons name="create-outline" size={22} color={colors.textMuted} />
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    onPress={startEditing}
+                    hitSlop={10}
+                    disabled={deleting}
+                    accessibilityLabel="Eintrag bearbeiten"
+                  >
+                    <Ionicons name="pencil-outline" size={20} color={colors.textMuted} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={confirmDelete}
+                    hitSlop={10}
+                    disabled={deleting}
+                    accessibilityLabel="Eintrag löschen"
+                  >
+                    {deleting ? (
+                      <ActivityIndicator size="small" color={colors.textMuted} />
+                    ) : (
+                      <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+                    )}
+                  </TouchableOpacity>
+                </>
               ) : null}
               <TouchableOpacity
                 onPress={editing ? cancelEditing : onClose}
@@ -183,15 +222,20 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
 
           {editing ? (
             <>
+              {/* defaultValue statt value: Die Felder werden beim Umschalten in
+                  den Bearbeiten-Modus frisch gemountet und garantiert mit dem
+                  bestehenden Text vorbefüllt (kontrollierte Inputs zeigten auf
+                  Android beim Einblenden teils leere Felder). Der State läuft
+                  über onChangeText fürs Speichern weiter mit. */}
               <TextInput
-                value={editTitle}
+                defaultValue={editTitle}
                 onChangeText={setEditTitle}
                 placeholder="Worum geht's?"
                 placeholderTextColor={colors.textFaint}
                 style={styles.titleInput}
               />
               <TextInput
-                value={editBody}
+                defaultValue={editBody}
                 onChangeText={setEditBody}
                 placeholder="Dein Eintrag …"
                 placeholderTextColor={colors.textFaint}
@@ -202,8 +246,14 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
             </>
           ) : (
             <>
-              <Text style={styles.title}>{title}</Text>
+              {title ? <Text style={styles.title}>{title}</Text> : null}
               {body ? <Text style={styles.body}>{body}</Text> : null}
+              {/* Angehängte Bilder (reine Anzeige, ohne Entfernen-Kreuz) */}
+              {entry.images && entry.images.length > 0 ? (
+                <View style={styles.imagesWrap}>
+                  <EntryImages uris={entry.images.map(entryImageUrl)} />
+                </View>
+              ) : null}
             </>
           )}
 
@@ -257,9 +307,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.text,
     marginTop: 10,
-    marginBottom: 12,
   },
-  body: { fontSize: 16, lineHeight: 24, color: colors.text },
+  // marginTop trägt den Abstand – funktioniert mit und ohne Überschrift
+  body: { fontSize: 16, lineHeight: 24, color: colors.text, marginTop: 12 },
+  imagesWrap: { marginTop: 12 },
   // Eingabefelder im Look der Anzeige (Titel serif, Text wie body)
   titleInput: {
     fontFamily: serif,

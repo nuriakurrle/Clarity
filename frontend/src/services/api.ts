@@ -111,7 +111,14 @@ export type EntryRecord = {
   sentiment: 'positive' | 'neutral' | 'negative' | null;
   valence: number | null;
   primary_emotion: string | null;
+  /** Dateinamen angehängter Bilder – anzeigen via entryImageUrl(). */
+  images?: string[];
 };
+
+/** Absolute URL eines Eintrag-Bildes (GET /images/{filename}, Sentiment-Agent). */
+export function entryImageUrl(filename: string): string {
+  return `${baseUrl('sentiment')}/images/${filename}`;
+}
 
 export type Digest = {
   week_start?: string;
@@ -201,6 +208,16 @@ export function updateEntry(entryId: number, text: string): Promise<AnalyzeResul
   );
 }
 
+/** Löscht einen Eintrag samt Analyse-Daten endgültig (Sentiment-Agent). */
+export function deleteEntry(entryId: number): Promise<{ entry_id: number; status: string }> {
+  return request<{ entry_id: number; status: string }>(
+    'sentiment',
+    `/entries/${entryId}`,
+    { method: 'DELETE' },
+    30000,
+  );
+}
+
 /** Longitudinales Stimmungsprofil der letzten `days` Tage (Sentiment-Agent). */
 export function fetchMoodProfile(days = 7): Promise<MoodProfile> {
   return request<MoodProfile>('sentiment', `/mood-profile?days=${days}`);
@@ -245,60 +262,96 @@ export function detectPatterns(days = 7): Promise<PatternResult> {
  *  deshalb nicht über den JSON-`request`-Helper: Der Browser/RN setzt den
  *  Content-Type mit Boundary selbst. Native schickt die Datei-URI direkt,
  *  im Web wird die Blob-URL der MediaRecorder-Aufnahme erst geladen. */
+/** Nativer Datei-Upload über React Natives XMLHttpRequest (Multipart, Feld "file").
+ *  Grund statt fetch/expo-file-system: `expo/fetch` (globales fetch) akzeptiert
+ *  kein { uri }-FormData-Teil ("Unsupported FormDataPart implementation") und
+ *  expo-file-system darf in Expo Go fremde Cache-Ordner (expo-audio-Aufnahmen,
+ *  Galerie-Kopien) nicht lesen. RNs eigener Netzwerk-Stack liest die Datei
+ *  nativ und kennt beide Einschränkungen nicht. */
+function uploadFileViaXhr<T>(
+  url: string,
+  uri: string,
+  mimePrefix: 'audio' | 'image',
+  timeoutMs = 300000,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = timeoutMs;
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          reject(new Error(`Ungültige Antwort von ${url}`));
+        }
+      } else {
+        reject(new Error(`HTTP ${xhr.status} von ${url}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error(`Netzwerkfehler beim Upload (${url})`));
+    xhr.ontimeout = () => reject(new Error(`Zeitüberschreitung beim Upload (${url})`));
+
+    const ext = uri.split('.').pop()?.toLowerCase() ?? (mimePrefix === 'audio' ? 'm4a' : 'jpg');
+    const form = new FormData();
+    form.append('file', {
+      uri,
+      name: `upload.${ext}`,
+      type: `${mimePrefix}/${ext}`,
+    } as unknown as Blob);
+    xhr.send(form);
+  });
+}
+
+/** Blob-/Data-URL (Web) als Multipart-Datei hochladen. */
+async function uploadBlobUri<T>(url: string, uri: string, fallbackType: string): Promise<T> {
+  const blob = await (await fetch(uri)).blob();
+  const type = blob.type || fallbackType;
+  const ext = type.split('/')[1]?.split(';')[0] ?? 'bin';
+  const form = new FormData();
+  form.append('file', new File([blob], `upload.${ext}`, { type }));
+  const res = await fetch(url, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`HTTP ${res.status} von ${url}`);
+  return (await res.json()) as T;
+}
+
+/** Fehler um die Ziel-URL anreichern – "Network request failed" allein
+ *  verrät nicht, welchen Host die App erreichen wollte. */
+function withUrlInfo(e: unknown, url: string): Error {
+  if (e instanceof Error && !e.message.includes(url)) {
+    return new Error(`${e.message} (${url})`);
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 export async function transcribeAudio(uri: string): Promise<TranscriptionResult> {
   const url = `${baseUrl('transcribe')}/transcribe`;
   try {
     if (uri.startsWith('blob:') || uri.startsWith('data:')) {
       // Web: MediaRecorder liefert eine Blob-URL (webm/mp4 je nach Browser)
-      const blob = await (await fetch(uri)).blob();
-      const ext = blob.type.includes('webm') ? 'webm' : 'm4a';
-      const form = new FormData();
-      form.append('file', new File([blob], `recording.${ext}`, { type: blob.type || 'audio/webm' }));
-      const res = await fetch(url, { method: 'POST', body: form });
-      if (!res.ok) throw new Error(`HTTP ${res.status} von ${url}`);
-      return (await res.json()) as TranscriptionResult;
+      return await uploadBlobUri<TranscriptionResult>(url, uri, 'audio/webm');
     }
-
-    // Nativ: Upload über React Natives XMLHttpRequest statt fetch/expo-file-system.
-    // Grund: `expo/fetch` (globales fetch) akzeptiert kein { uri }-FormData-Teil
-    // ("Unsupported FormDataPart implementation") und expo-file-system darf in
-    // Expo Go den Aufnahme-Ordner von expo-audio nicht lesen ("Missing 'READ'
-    // permission" / "isn't readable"). RNs eigener Netzwerk-Stack liest die
-    // Datei nativ und kennt beide Einschränkungen nicht.
-    return await new Promise<TranscriptionResult>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', url);
-      xhr.timeout = 300000;
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          try {
-            resolve(JSON.parse(xhr.responseText) as TranscriptionResult);
-          } catch {
-            reject(new Error(`Ungültige Antwort von ${url}`));
-          }
-        } else {
-          reject(new Error(`HTTP ${xhr.status} von ${url}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error(`Netzwerkfehler beim Upload (${url})`));
-      xhr.ontimeout = () => reject(new Error(`Zeitüberschreitung beim Upload (${url})`));
-
-      const ext = uri.split('.').pop()?.toLowerCase() ?? 'm4a';
-      const form = new FormData();
-      form.append('file', {
-        uri,
-        name: `recording.${ext}`,
-        type: `audio/${ext}`,
-      } as unknown as Blob);
-      xhr.send(form);
-    });
+    return await uploadFileViaXhr<TranscriptionResult>(url, uri, 'audio');
   } catch (e) {
-    // Netzwerkfehler um die Ziel-URL anreichern – "Network request failed"
-    // allein verrät nicht, welchen Host die App erreichen wollte.
-    if (e instanceof Error && !e.message.includes(url)) {
-      throw new Error(`${e.message} (${url})`);
+    throw withUrlInfo(e, url);
+  }
+}
+
+/** Hängt ein Bild an einen Eintrag an (Sentiment-Agent, Multipart-Upload).
+ *  Die Datei landet im Backend unter /data/images, der Dateiname in der DB. */
+export async function uploadEntryImage(
+  entryId: number,
+  uri: string,
+): Promise<{ entry_id: number; filename: string }> {
+  const url = `${baseUrl('sentiment')}/entries/${entryId}/images`;
+  try {
+    if (uri.startsWith('blob:') || uri.startsWith('data:')) {
+      // Web: expo-image-picker liefert Blob-/Data-URLs
+      return await uploadBlobUri(url, uri, 'image/jpeg');
     }
-    throw e;
+    return await uploadFileViaXhr(url, uri, 'image', 60000);
+  } catch (e) {
+    throw withUrlInfo(e, url);
   }
 }
 

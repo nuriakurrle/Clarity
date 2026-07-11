@@ -1,7 +1,8 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
-import os, json, re, logging, sys
+import os, json, re, logging, sys, uuid
 from collections import defaultdict
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -13,7 +14,8 @@ sys.path.insert(0, '/app/shared')
 from database import (
     init_db, save_sentiment, save_entry, get_mood_profile,
     save_mood_profile, calculate_mood_trend, get_emotional_summary,
-    get_entries_with_sentiment, get_db_connection, update_entry_content
+    get_entries_with_sentiment, get_db_connection, update_entry_content,
+    delete_entry, save_entry_image, get_entry_images
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -125,6 +127,16 @@ Rules:
                 sentiment_data = json.loads(json_match.group())
                 logger.info(f"✅ Sentiment detected - Valence: {sentiment_data.get('valence')}, Intensity: {sentiment_data.get('intensity')}")
 
+                # Eintrag könnte während der LLM-Analyse gelöscht worden sein –
+                # dann nichts speichern, sonst entstehen verwaiste Analyse-Zeilen,
+                # die die Mood-Statistiken verfälschen.
+                conn = get_db_connection()
+                exists = conn.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone()
+                conn.close()
+                if not exists:
+                    logger.info(f"🗑️ Entry {entry_id} was deleted during analysis – skipping save")
+                    return
+
                 # 💾 SAVE TO DATABASE
                 save_sentiment(
                     entry_id,
@@ -164,6 +176,70 @@ async def update_entry(entry_id: int, input: UpdateEntryInput, background_tasks:
     logger.info(f"✏️ Updated entry {entry_id}: {input.text[:50]}...")
     background_tasks.add_task(run_analysis, entry_id, TextInput(text=input.text, entry_id=entry_id))
     return {"entry_id": entry_id, "status": "queued"}
+
+# --- Bilder zu Einträgen ------------------------------------------------------
+
+# Dateien liegen im Docker-Volume neben der SQLite-DB (./data auf dem Host).
+IMAGES_DIR = "/data/images"
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic"}
+
+@app.post("/entries/{entry_id}/images")
+async def upload_entry_image(entry_id: int, file: UploadFile = File(...)):
+    """
+    Attach an image to an entry. The file is stored under /data/images with a
+    generated name (entryid_uuid.ext), the filename is recorded in the DB and
+    returned so the app can display it via GET /images/{filename}.
+    """
+    conn = get_db_connection()
+    exists = conn.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    conn.close()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        ext = ".jpg"
+    filename = f"{entry_id}_{uuid.uuid4().hex}{ext}"
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    with open(os.path.join(IMAGES_DIR, filename), "wb") as f:
+        f.write(data)
+    save_entry_image(entry_id, filename)
+    logger.info(f"🖼️ Saved image for entry {entry_id}: {filename} ({len(data)} bytes)")
+    return {"entry_id": entry_id, "filename": filename}
+
+@app.get("/images/{filename}")
+async def get_image(filename: str):
+    """Serve an attached image. Filenames are generated (no user input paths)."""
+    # Kein Pfad-Traversal: nur nackte Dateinamen zulassen.
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = os.path.join(IMAGES_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path)
+
+@app.delete("/entries/{entry_id}")
+async def delete_entry_endpoint(entry_id: int):
+    """
+    Delete an entry including its sentiment analysis, mood profile rows,
+    generated prompts and attached images (DB rows AND files), so history,
+    calendar and insights stay consistent.
+    """
+    # Bild-Dateien zuerst einsammeln – delete_entry räumt die DB-Zeilen weg.
+    filenames = get_entry_images(entry_id)
+    if not delete_entry(entry_id):
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+    for filename in filenames:
+        try:
+            os.unlink(os.path.join(IMAGES_DIR, filename))
+        except OSError:
+            pass  # Datei fehlt schon – DB ist die Quelle der Wahrheit
+    logger.info(f"🗑️ Deleted entry {entry_id} (+{len(filenames)} images)")
+    return {"entry_id": entry_id, "status": "deleted"}
 
 @app.get("/entries")
 async def list_entries():

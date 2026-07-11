@@ -18,6 +18,8 @@ type Props = {
   height?: number;
   /** false, wenn der Aufrufer die Labels schon ausgedünnt hat (leere Strings). */
   thinLabels?: boolean;
+  /** Indizes ohne sichtbaren Punkt (interpolierte Tage in der Monatsansicht). */
+  hideDotsAtIndex?: number[];
 };
 
 /** '#RRGGBB' + Deckkraft → 'rgba(r,g,b,a)' (chart-kit gibt die Opacity vor). */
@@ -26,7 +28,12 @@ function rgba(hex: string, opacity = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
-export function MoodLineChart({ data, height = 200, thinLabels = true }: Props) {
+export function MoodLineChart({
+  data,
+  height = 200,
+  thinLabels = true,
+  hideDotsAtIndex,
+}: Props) {
   const [width, setWidth] = useState(0);
 
   // Bei vielen Punkten nicht jede Beschriftung zeigen, sonst überlappt es.
@@ -46,6 +53,7 @@ export function MoodLineChart({ data, height = 200, thinLabels = true }: Props) 
           bezier
           fromZero
           segments={4}
+          hidePointsAtIndex={hideDotsAtIndex}
           withVerticalLines={false}
           withHorizontalLabels={false}
           chartConfig={{

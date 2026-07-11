@@ -4,7 +4,7 @@
  * Füllt die drei Abschnitte mit Inhalten aus dem Backend:
  *   - Tonverlauf                ← Digest-Agent (Zusammenfassung der Woche)
  *   - Wiederkehrende Themen     ← Digest-Agent (Highlights + Challenges)
- *   - Eine Frage zum Weitertragen ← lokaler Impuls,
+ *   - Reflexionsfrage           ← lokaler Impuls,
  *     mit der Digest-Affirmation als sanftem Abschluss.
  *
  * Bausteine aus `../components/home` (Bullet, QuoteBlock) und der
@@ -54,13 +54,11 @@ export default function HomeScreen({ onWrite }: Props) {
   // Dominante Mood-Farbe der Woche – hauchzarter Tint für die Zitat-Boxen,
   // damit sich die Digest-Sektion am Blob-Farbschema orientiert.
   const [weekAccent, setWeekAccent] = useState<string | undefined>();
-  // Typewriter-Trigger: werden true, sobald der jeweilige Block in den
-  // sichtbaren Bereich scrollt (und bleiben true – einmal pro Sitzung).
+  // Typewriter-Trigger: wird true, sobald der Block in den sichtbaren
+  // Bereich scrollt (und bleibt true – einmal pro Sitzung).
   const [typeSummary, setTypeSummary] = useState(false);
-  const [typeQuestion, setTypeQuestion] = useState(false);
   const bodyY = useRef(0);
   const summaryY = useRef(0);
-  const questionY = useRef(0);
 
   useEffect(() => {
     fetchLatestDigest()
@@ -94,14 +92,11 @@ export default function HomeScreen({ onWrite }: Props) {
       .catch(() => {});
   }, []);
 
-  // Blöcke gelten als "im Viewport", sobald sie zu ~85 % sichtbar werden.
+  // Der Block gilt als "im Viewport", sobald er zu ~85 % sichtbar wird.
   const checkInView = (offsetY: number) => {
     const line = offsetY + viewportH * 0.85;
     if (!typeSummary && summaryY.current > 0 && line > bodyY.current + summaryY.current) {
       setTypeSummary(true);
-    }
-    if (!typeQuestion && questionY.current > 0 && line > bodyY.current + questionY.current) {
-      setTypeQuestion(true);
     }
   };
 
@@ -206,13 +201,11 @@ export default function HomeScreen({ onWrite }: Props) {
             )}
           </View>
 
-          <View
-            style={styles.spacer32}
-            onLayout={(e) => (questionY.current = e.nativeEvent.layout.y)}
-          >
-            <SectionLabel text="Eine Frage zum Weitertragen" />
+          <View style={styles.spacer32}>
+            <SectionLabel text="Reflexionsfrage" />
             <View style={styles.sectionContent}>
-              <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} typingActive={typeQuestion} />
+              {/* Bewusst ohne Typewriter (typingActive) – die Frage steht sofort da. */}
+              <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} />
             </View>
           </View>
 

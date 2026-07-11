@@ -110,6 +110,17 @@ def init_db():
         )
     """)
 
+    # Images attached to journal entries (files live in /data/images)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entry_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(entry_id) REFERENCES entries(id)
+        )
+    """)
+
     # Weekly Digest
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS weekly_digest (
@@ -146,6 +157,43 @@ def update_entry_content(entry_id: int, content: str) -> bool:
     updated = cursor.rowcount > 0
     conn.close()
     return updated
+
+def delete_entry(entry_id: int) -> bool:
+    """Delete an entry and everything derived from it (analysis, mood
+    profile, generated prompts, image records). Returns False if the entry
+    doesn't exist. Image FILES must be removed by the caller beforehand
+    (see get_entry_images)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM sentiment_analysis WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM mood_profile WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM generated_prompts WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM entry_images WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+def save_entry_image(entry_id: int, filename: str) -> None:
+    """Attach an image (stored under /data/images) to an entry."""
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO entry_images (entry_id, filename) VALUES (?, ?)",
+        (entry_id, filename),
+    )
+    conn.commit()
+    conn.close()
+
+def get_entry_images(entry_id: int) -> list:
+    """Filenames of all images attached to an entry (oldest first)."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT filename FROM entry_images WHERE entry_id = ? ORDER BY id",
+        (entry_id,),
+    ).fetchall()
+    conn.close()
+    return [row["filename"] for row in rows]
 
 def save_sentiment(
     entry_id: int, 
@@ -515,7 +563,8 @@ def get_patterns_since(since: str) -> list:
     return result
 
 def get_entries_with_sentiment() -> list:
-    """Return all journal entries (newest first) with their latest sentiment.
+    """Return all journal entries (newest first) with their latest sentiment
+    and the filenames of attached images.
 
     Used by the sentiment agent's /entries endpoint (history & search in the app).
     """
@@ -529,8 +578,21 @@ def get_entries_with_sentiment() -> list:
            )
            ORDER BY e.created_at DESC, e.id DESC"""
     ).fetchall()
+    image_rows = conn.execute(
+        "SELECT entry_id, filename FROM entry_images ORDER BY id"
+    ).fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+
+    images_by_entry: dict = {}
+    for row in image_rows:
+        images_by_entry.setdefault(row["entry_id"], []).append(row["filename"])
+
+    entries = []
+    for row in rows:
+        entry = dict(row)
+        entry["images"] = images_by_entry.get(entry["id"], [])
+        entries.append(entry)
+    return entries
 
 def get_latest_digest() -> dict | None:
     """Return the most recently created weekly digest, with JSON fields decoded."""

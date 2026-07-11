@@ -31,7 +31,8 @@ import { colors } from '../theme/colors';
 type Range = 'Woche' | 'Monat' | 'Jahr';
 
 const RANGES: readonly Range[] = ['Woche', 'Monat', 'Jahr'];
-const RANGE_DAYS: Record<Range, number> = { Woche: 7, Monat: 30, Jahr: 365 };
+// Monat: 31, damit das Profil-Fenster auch am 31. den ganzen Monat abdeckt
+const RANGE_DAYS: Record<Range, number> = { Woche: 7, Monat: 31, Jahr: 365 };
 const WEEKDAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const MONTH_LABELS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,13 +48,6 @@ function localIso(date: Date): string {
 
 /** created_at ("YYYY-MM-DD HH:MM:SS", UTC) → Millisekunden. */
 const parseUtc = (s: string) => Date.parse(`${s.replace(' ', 'T')}Z`);
-
-/** Montag (lokale Zeit) der Woche, in der das Datum liegt. */
-function mondayOf(date: Date): Date {
-  const m = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
-  return m;
-}
 
 /** Zusammenhängende Tage in Folge bis zum letzten Eintrag. */
 function calcStreak(localDates: string[]): number {
@@ -88,10 +82,13 @@ function computeStats(
   return { entryCount: inRange.length, wordCount, streak };
 }
 
+/** Chart-Daten: Punkte + Indizes interpolierter Tage (ohne sichtbaren Dot). */
+type ChartData = { points: MoodPoint[]; hiddenDots: number[] };
+
 /** Tages-Stimmungen des Agents in Chart-Punkte je Zeitraum umrechnen. */
-function buildMoodPoints(profile: MoodProfile, range: Range): MoodPoint[] {
+function buildMoodPoints(profile: MoodProfile, range: Range): ChartData {
   const days = profile.mood_profile.daily_breakdown; // aufsteigend nach Datum
-  if (days.length === 0) return [];
+  if (days.length === 0) return { points: [], hiddenDots: [] };
 
   if (range === 'Jahr') {
     // Nach Monat bündeln, damit die Linie nicht überläuft.
@@ -104,34 +101,66 @@ function buildMoodPoints(profile: MoodProfile, range: Range): MoodPoint[] {
       b.n += 1;
       buckets.set(key, b);
     }
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, b]) => ({ label: MONTH_LABELS[b.month], valence: b.sum / b.n }));
+    return {
+      points: [...buckets.entries()]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, b]) => ({ label: MONTH_LABELS[b.month], valence: b.sum / b.n })),
+      hiddenDots: [],
+    };
   }
 
   if (range === 'Woche') {
-    return days.map((d) => ({
-      label: WEEKDAY_LABELS[new Date(`${d.date}T12:00:00`).getDay()],
-      valence: d.average_valence,
-    }));
+    return {
+      points: days.map((d) => ({
+        label: WEEKDAY_LABELS[new Date(`${d.date}T12:00:00`).getDay()],
+        valence: d.average_valence,
+      })),
+      hiddenDots: [],
+    };
   }
 
-  // Monat: Tagespunkte behalten (die Kurve zeigt weiterhin jede Schwankung),
-  // aber die X-Achse pro Kalenderwoche beschriften: Der erste Datenpunkt
-  // einer Woche trägt „von–bis" („29.–5."), alle weiteren bleiben leer.
-  let lastWeekKey = '';
-  return days.map((d) => {
-    const monday = mondayOf(new Date(`${d.date}T12:00:00`));
-    const key = localIso(monday);
-    let label = '';
-    if (key !== lastWeekKey) {
-      lastWeekKey = key;
-      const sunday = new Date(monday);
-      sunday.setDate(sunday.getDate() + 6);
-      label = `${monday.getDate()}.–${sunday.getDate()}.`;
+  // Monat: der AKTUELLE Kalendermonat, die X-Achse spannt IMMER den ganzen
+  // Monat (1. bis Monatsende) – mit vier festen Marken „01 · 10 · 20 · 31"
+  // (letzter Tag je nach Monat). Jeder Tag bekommt eine Position; Tage ohne
+  // Eintrag werden auf der Linie interpoliert bzw. flach weitergezogen und
+  // zeigen keinen Punkt – Punkte gibt es nur an Tagen mit echtem Eintrag.
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-`;
+  const byDay = new Map<number, number>();
+  for (const d of days) {
+    if (d.date.startsWith(prefix)) {
+      byDay.set(parseInt(d.date.slice(8, 10), 10), d.average_valence);
     }
-    return { label, valence: d.average_valence };
-  });
+  }
+  if (byDay.size === 0) return { points: [], hiddenDots: [] };
+
+  const knownDays = [...byDay.keys()].sort((a, b) => a - b);
+  const labelDays = new Set([1, 10, 20, lastDay]);
+  const points: MoodPoint[] = [];
+  const hiddenDots: number[] = [];
+  for (let day = 1; day <= lastDay; day++) {
+    let valence: number;
+    const known = byDay.get(day);
+    if (known != null) {
+      valence = known;
+    } else {
+      hiddenDots.push(day - 1);
+      // Lücke füllen: linear zwischen den nächsten Tagen mit Eintrag,
+      // vor dem ersten/nach dem letzten Eintrag flach weiterziehen.
+      const prev = [...knownDays].reverse().find((k) => k < day);
+      const next = knownDays.find((k) => k > day);
+      if (prev != null && next != null) {
+        const t = (day - prev) / (next - prev);
+        valence = byDay.get(prev)! + t * (byDay.get(next)! - byDay.get(prev)!);
+      } else {
+        valence = byDay.get(prev ?? next!)!;
+      }
+    }
+    const label = labelDays.has(day) ? String(day).padStart(2, '0') : '';
+    points.push({ label, valence });
+  }
+  return { points, hiddenDots };
 }
 
 // --- Screen -----------------------------------------------------------------
@@ -170,7 +199,9 @@ export default function InsightScreen() {
     };
   }, [range]);
 
-  const points = profile ? buildMoodPoints(profile, range) : [];
+  const { points, hiddenDots } = profile
+    ? buildMoodPoints(profile, range)
+    : { points: [], hiddenDots: [] };
 
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
@@ -203,7 +234,11 @@ export default function InsightScreen() {
               Backend nicht erreichbar. Läuft „docker compose up" und bist du im selben WLAN?
             </Text>
           ) : points.length > 0 ? (
-            <MoodLineChart data={points} thinLabels={range !== 'Monat'} />
+            <MoodLineChart
+              data={points}
+              thinLabels={range !== 'Monat'}
+              hideDotsAtIndex={hiddenDots}
+            />
           ) : (
             <Text style={styles.hint}>
               Noch keine Einträge in diesem Zeitraum – schreib deinen ersten!

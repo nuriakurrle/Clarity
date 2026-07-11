@@ -15,7 +15,8 @@
  * Editor-Extras (Toolbar über der Tastatur):
  * - „Aa" klappt das Format-Panel auf (Schrift, Größe, Ausrichtung, Farbe);
  *   formatiert wird zeilenweise – jede Zeile ist ein eigener Block (BlockEditor)
- * - Bild-Button hängt Fotos aus der Galerie an (bleiben lokal auf dem Gerät)
+ * - Bild-Button hängt Fotos aus der Galerie an; sie werden beim Speichern
+ *   mit hochgeladen (Backend: /data/images) und gehören zum Eintrag
  * - Mikro nimmt die Stimme auf und transkribiert sie lokal per Whisper
  *   (Transcribe-Agent, Deutsch/Englisch automatisch) in den Eintrag
  * - Stimmung wird oben unterm Datum gewählt (MoodBar), nicht mehr im Footer
@@ -49,7 +50,7 @@ import { Block, BlockEditorHandle, newBlockId } from '../components/entry/BlockE
 import { DEFAULT_FORMAT, EditorFormat } from '../components/entry/EditorToolbar';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
-import { analyzeEntry, detectPatterns } from '../services/api';
+import { analyzeEntry, detectPatterns, uploadEntryImage } from '../services/api';
 import { notifyOnNewPatterns } from '../services/notifications';
 import { colors, moodColor, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -197,7 +198,12 @@ export default function EntryScreen({ onDone }: Props) {
     try {
       // Speichert den Eintrag sofort; die Sentiment-Analyse läuft im Backend
       // als Hintergrund-Task – die Antwort kommt ohne LLM-Wartezeit.
-      await analyzeEntry(text, mood ?? undefined);
+      const saved = await analyzeEntry(text, mood ?? undefined);
+      // Angehängte Bilder zum Eintrag hochladen (Backend: /data/images + DB).
+      // allSettled: Ein fehlgeschlagenes Bild verwirft nicht den Eintrag.
+      if (images.length > 0) {
+        await Promise.allSettled(images.map((uri) => uploadEntryImage(saved.entry_id, uri)));
+      }
       discardDraft();
       // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert).
       // Der Agent liest die echten Eintraege der letzten 7 Tage aus der DB.
@@ -313,12 +319,6 @@ export default function EntryScreen({ onDone }: Props) {
             uris={images}
             onRemove={(uri) => setImages((prev) => prev.filter((u) => u !== uri))}
           />
-          {images.length > 0 ? (
-            <Text style={styles.imagesHint}>
-              Bilder bleiben nur in dieser Schreibsitzung – sie werden nicht mit
-              dem Eintrag gespeichert.
-            </Text>
-          ) : null}
 
           <View style={styles.editor}>
             <BlockEditor
@@ -410,8 +410,6 @@ const styles = StyleSheet.create({
     padding: 0,
     ...noOutline,
   },
-  // Ehrlicher Hinweis: Bilder werden (noch) nicht persistiert
-  imagesHint: { fontSize: 12, lineHeight: 16, color: colors.textFaint, marginTop: 6 },
   // Zeilen-Blöcke: Größe/Farbe/Font je Zeile kommen aus dem BlockEditor
   editor: {
     marginTop: 12,
