@@ -16,9 +16,7 @@ export type MoodPoint = { label: string; valence: number };
 type Props = {
   data: MoodPoint[];
   height?: number;
-  /** false, wenn der Aufrufer die Labels schon ausgedünnt hat (leere Strings). */
-  thinLabels?: boolean;
-  /** Indizes ohne sichtbaren Punkt (interpolierte Tage in der Monatsansicht). */
+  /** Indizes ohne sichtbaren Punkt (interpolierte Positionen ohne Eintrag). */
   hideDotsAtIndex?: number[];
 };
 
@@ -28,17 +26,11 @@ function rgba(hex: string, opacity = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
-export function MoodLineChart({
-  data,
-  height = 200,
-  thinLabels = true,
-  hideDotsAtIndex,
-}: Props) {
+export function MoodLineChart({ data, height = 200, hideDotsAtIndex }: Props) {
   const [width, setWidth] = useState(0);
 
-  // Bei vielen Punkten nicht jede Beschriftung zeigen, sonst überlappt es.
-  const step = thinLabels ? Math.max(1, Math.ceil(data.length / 6)) : 1;
-  const labels = data.map((d, i) => (i % step === 0 ? d.label : ''));
+  // Die Aufrufer dünnen selbst aus (leere Strings an Positionen ohne Marke).
+  const labels = data.map((d) => d.label);
   const values = data.map(
     (d) => Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100),
   );
@@ -53,7 +45,13 @@ export function MoodLineChart({
           bezier
           fromZero
           segments={4}
-          hidePointsAtIndex={hideDotsAtIndex}
+          // Bewusst NICHT hidePointsAtIndex: das würde auch die X-Achsen-Labels
+          // an diesen Indizes unterdrücken. Stattdessen unsichtbare Dots (r=0).
+          getDotProps={(_, i) =>
+            hideDotsAtIndex?.includes(i)
+              ? { r: '0' }
+              : { r: '4', strokeWidth: '2', stroke: colors.surface }
+          }
           withVerticalLines={false}
           withHorizontalLabels={false}
           chartConfig={{
@@ -68,7 +66,6 @@ export function MoodLineChart({
             fillShadowGradientFromOpacity: 0.08,
             fillShadowGradientTo: colors.surface,
             fillShadowGradientToOpacity: 0,
-            propsForDots: { r: '4', strokeWidth: '2', stroke: colors.surface },
             propsForBackgroundLines: { stroke: colors.border, strokeDasharray: '4 7' },
           }}
           style={styles.chart}
