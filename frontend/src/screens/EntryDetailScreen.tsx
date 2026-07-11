@@ -7,13 +7,16 @@
  * kommen aus `created_at`, dazu die Stimmung aus der Sentiment-Analyse
  * (farbiger Punkt + Label) und – falls vorhanden – die Hauptemotion.
  *
- * Bearbeiten: Der Stift schaltet Titel + Text auf Eingabefelder um.
- * „Speichern" schickt den neuen Text per PUT /entries/{id} an den
- * Sentiment-Agenten (Save-first, die Analyse läuft im Hintergrund neu)
- * und meldet den aktualisierten Eintrag über `onUpdated` an App.tsx –
- * so zeigen Detailansicht und Listen sofort den neuen Stand.
+ * Bearbeiten: Der Stift schaltet Titel + Text auf Eingabefelder um –
+ * mit derselben Editor-Leiste wie beim neuen Eintrag („Aa"-Format-Panel,
+ * Bild anhängen, Spracheingabe per Whisper). Neue Bilder werden erst beim
+ * Speichern hochgeladen (Abbrechen verwirft sie). „Speichern" schickt den
+ * neuen Text per PUT /entries/{id} an den Sentiment-Agenten (Save-first,
+ * die Analyse läuft im Hintergrund neu) und meldet den aktualisierten
+ * Eintrag über `onUpdated` an App.tsx – so zeigen Detailansicht und
+ * Listen sofort den neuen Stand.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -30,13 +33,19 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { EntryImages } from '../components/entry';
+import * as ImagePicker from 'expo-image-picker';
+import { BlockEditor, EditorToolbar, EntryImages, KeyboardToolbar } from '../components/entry';
+import { Block, BlockEditorHandle, newBlockId } from '../components/entry/BlockEditor';
+import { DEFAULT_FORMAT, EditorFormat } from '../components/entry/EditorToolbar';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import {
   EntryRecord,
   deleteEntry,
   deleteEntryImage,
   entryImageUrl,
   updateEntry,
+  uploadEntryImage,
 } from '../services/api';
 import { colors, moodColor, moodLabel, valenceToMoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -74,11 +83,18 @@ function splitEntry(content: string): { title: string; body: string } {
 export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) {
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
-  const [editBody, setEditBody] = useState('');
+  // Eintragstext beim Bearbeiten als Absatz-Blöcke – wie im EntryScreen,
+  // damit „Aa"-Format-Panel und Spracheingabe identisch funktionieren.
+  const [editBlocks, setEditBlocks] = useState<Block[]>([]);
+  const [activeBlockId, setActiveBlockId] = useState<string>('');
+  const [formatOpen, setFormatOpen] = useState(false);
+  // Beim Bearbeiten neu angehängte Bilder (lokale URIs); Upload erst beim Speichern
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   // Dateiname des Bildes, das gerade im Vollbild-Viewer offen ist
   const [viewerImage, setViewerImage] = useState<string | null>(null);
+  const editorRef = useRef<BlockEditorHandle>(null);
 
   const { dateLabel, timeLabel } = useMemo(() => {
     const d = parseCreatedAt(entry.created_at);
@@ -112,11 +128,75 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
     // stehen beim Bearbeiten genau dort, wo sie eben noch angezeigt wurden.
     const raw = splitEntry(entry.content);
     setEditTitle(raw.title);
-    setEditBody(raw.body);
+    const lines = raw.body ? raw.body.split('\n') : [''];
+    const blocks = lines.map((line) => ({ id: newBlockId(), text: line, format: DEFAULT_FORMAT }));
+    setEditBlocks(blocks);
+    setActiveBlockId(blocks[blocks.length - 1].id);
+    setFormatOpen(false);
+    setPendingImages([]);
     setEditing(true);
   };
 
-  const cancelEditing = () => setEditing(false);
+  const cancelEditing = () => {
+    setEditing(false);
+    setFormatOpen(false);
+    setPendingImages([]);
+  };
+
+  // Die „Aa"-Leiste zeigt und ändert das Format der Zeile mit dem Cursor
+  const activeBlock =
+    editBlocks.find((b) => b.id === activeBlockId) ?? editBlocks[editBlocks.length - 1];
+  const handleFormatChange = (next: EditorFormat) =>
+    setEditBlocks((prev) =>
+      prev.map((b) => (b.id === activeBlock.id ? { ...b, format: next } : b)),
+    );
+
+  // Tastatur offen? Editor-Leiste direkt darüber zeigen, Fußzeile solange
+  // ausblenden (Android hebt nichts automatisch an – wie im EntryScreen).
+  const keyboardHeight = useKeyboardHeight();
+  const keyboardOpen = keyboardHeight > 0;
+  const keyboardPad = Platform.OS === 'android' ? keyboardHeight : 0;
+
+  // Transkribierten Text ans Ende der letzten Zeile anhängen (wie im EntryScreen)
+  const voice = useVoiceRecorder((text) =>
+    setEditBlocks((prev) => {
+      if (prev.length === 0) return [{ id: newBlockId(), text, format: DEFAULT_FORMAT }];
+      const last = prev[prev.length - 1];
+      const merged = last.text.trim() ? `${last.text.trimEnd()} ${text}` : text;
+      return [...prev.slice(0, -1), { ...last, text: merged }];
+    }),
+  );
+
+  const handleToggleDictation = async () => {
+    if (voice.transcribing) return; // läuft schon – Ergebnis abwarten
+    if (voice.recording) {
+      await voice.stop();
+      return;
+    }
+    await voice.start();
+  };
+
+  // Fehler aus dem Recorder melden (Berechtigung/Backend) – wie im EntryScreen
+  useEffect(() => {
+    if (!voice.error) return;
+    showError(
+      voice.error === 'permission'
+        ? 'Bitte erlaube den Mikrofon-Zugriff, um deine Stimme aufzunehmen.'
+        : 'Die Aufnahme konnte nicht transkribiert werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?' +
+            (voice.errorDetail ? `\n\nDetails: ${voice.errorDetail}` : ''),
+    );
+  }, [voice.error]);
+
+  const handleAddImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    const uris = result.assets.map((a) => a.uri);
+    setPendingImages((prev) => [...prev, ...uris.filter((u) => !prev.includes(u))]);
+  };
 
   // URL einer Bild-Kachel → gespeicherter Dateiname (letztes Pfadsegment)
   const filenameFromUrl = (url: string) => decodeURIComponent(url.split('/').pop() ?? '');
@@ -179,7 +259,8 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
 
   const saveEdit = async () => {
     // Gleiches Format wie beim Anlegen im EntryScreen: Titel + Leerzeile + Text
-    const text = [editTitle.trim(), editBody.trim()].filter(Boolean).join('\n\n');
+    const bodyText = editBlocks.map((b) => b.text).join('\n');
+    const text = [editTitle.trim(), bodyText.trim()].filter(Boolean).join('\n\n');
     if (!text) {
       showError('Der Eintrag darf nicht leer sein.');
       return;
@@ -187,10 +268,29 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
     setSaving(true);
     try {
       await updateEntry(entry.id, text);
+      // Neu angehängte Bilder zum Eintrag hochladen (wie im EntryScreen);
+      // allSettled: Ein fehlgeschlagenes Bild verwirft nicht die Änderung.
+      let addedImages: string[] = [];
+      if (pendingImages.length > 0) {
+        const results = await Promise.allSettled(
+          pendingImages.map((uri) => uploadEntryImage(entry.id, uri)),
+        );
+        addedImages = results
+          .filter((r): r is PromiseFulfilledResult<{ entry_id: number; filename: string }> =>
+            r.status === 'fulfilled',
+          )
+          .map((r) => r.value.filename);
+      }
       // Stimmungswerte bleiben vorerst die alten – die Analyse des neuen
       // Texts läuft im Backend als Hintergrund-Task.
-      onUpdated?.({ ...entry, content: text });
+      onUpdated?.({
+        ...entry,
+        content: text,
+        images: [...(entry.images ?? []), ...addedImages],
+      });
       setEditing(false);
+      setPendingImages([]);
+      setFormatOpen(false);
     } catch {
       showError(
         'Die Änderung konnte nicht gespeichert werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?',
@@ -203,7 +303,7 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
-        style={styles.flex}
+        style={[styles.flex, keyboardPad > 0 && { paddingBottom: keyboardPad }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
@@ -263,7 +363,7 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
 
           {editing ? (
             <>
-              {/* defaultValue statt value: Die Felder werden beim Umschalten in
+              {/* defaultValue statt value: Das Feld wird beim Umschalten in
                   den Bearbeiten-Modus frisch gemountet und garantiert mit dem
                   bestehenden Text vorbefüllt (kontrollierte Inputs zeigten auf
                   Android beim Einblenden teils leere Felder). Der State läuft
@@ -274,23 +374,28 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
                 placeholder="Worum geht's?"
                 placeholderTextColor={colors.textFaint}
                 style={styles.titleInput}
+                returnKeyType="next"
+                onSubmitEditing={() => editorRef.current?.focusFirst()}
               />
-              <TextInput
-                defaultValue={editBody}
-                onChangeText={setEditBody}
+              <BlockEditor
+                ref={editorRef}
+                blocks={editBlocks}
+                setBlocks={setEditBlocks}
+                onActiveIdChange={setActiveBlockId}
                 placeholder="Dein Eintrag …"
-                placeholderTextColor={colors.textFaint}
-                style={styles.bodyInput}
-                multiline
-                textAlignVertical="top"
               />
-              {/* Bilder auch beim Bearbeiten zeigen; das „ד löscht einzelne
-                  Bilder (mit Nachfrage) direkt aus DB + Dateisystem */}
-              {entry.images && entry.images.length > 0 ? (
+              {/* Bilder auch beim Bearbeiten zeigen: gespeicherte Bilder löscht
+                  das „ד (mit Nachfrage) direkt aus DB + Dateisystem, neu
+                  angehängte (lokale) werden nur aus der Auswahl entfernt */}
+              {(entry.images?.length ?? 0) + pendingImages.length > 0 ? (
                 <View style={styles.imagesWrap}>
                   <EntryImages
-                    uris={entry.images.map(entryImageUrl)}
-                    onRemove={(uri) => confirmImageDelete(filenameFromUrl(uri))}
+                    uris={[...(entry.images ?? []).map(entryImageUrl), ...pendingImages]}
+                    onRemove={(uri) =>
+                      pendingImages.includes(uri)
+                        ? setPendingImages((prev) => prev.filter((u) => u !== uri))
+                        : confirmImageDelete(filenameFromUrl(uri))
+                    }
                   />
                 </View>
               ) : null}
@@ -314,8 +419,29 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
           <View style={styles.bottomSpace} />
         </ScrollView>
 
-        {/* Fußzeile wie im EntryScreen – nur im Bearbeiten-Modus */}
+        {/* Editor-Leiste wie im EntryScreen: sitzt über der Tastatur; „Aa"
+            klappt darüber das Format-Panel aus */}
         {editing ? (
+          <View style={styles.editorBar}>
+            {formatOpen && activeBlock ? (
+              <View style={styles.formatPanel}>
+                <EditorToolbar value={activeBlock.format} onChange={handleFormatChange} />
+              </View>
+            ) : null}
+            <KeyboardToolbar
+              formatOpen={formatOpen}
+              onToggleFormat={() => setFormatOpen((v) => !v)}
+              onAddImage={handleAddImage}
+              dictating={voice.recording}
+              transcribing={voice.transcribing}
+              onToggleDictation={handleToggleDictation}
+            />
+          </View>
+        ) : null}
+
+        {/* Fußzeile wie im EntryScreen – nur im Bearbeiten-Modus; beim Tippen
+            ausgeblendet, damit die Editor-Leiste direkt auf der Tastatur sitzt */}
+        {editing && !keyboardOpen ? (
           <View style={styles.footer}>
             <TouchableOpacity onPress={cancelEditing} hitSlop={8} disabled={saving}>
               <Text style={styles.cancelText}>Abbrechen</Text>
@@ -431,13 +557,21 @@ const styles = StyleSheet.create({
     padding: 0,
     ...noOutline,
   },
-  bodyInput: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: colors.text,
-    padding: 0,
-    minHeight: 160,
-    ...noOutline,
+  // Editor-Leiste + Format-Panel im Look des EntryScreens
+  editorBar: { paddingBottom: 2, zIndex: 2 },
+  formatPanel: {
+    marginHorizontal: 20,
+    marginBottom: 6,
+    paddingHorizontal: 14,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   footer: {
     flexDirection: 'row',
