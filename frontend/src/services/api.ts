@@ -10,12 +10,14 @@
 import Constants from 'expo-constants';
 
 // Bewusst nur die Agenten, deren Endpoints wir aktuell nutzen:
-// Sentiment (8001), Pattern (8002), Prompt (8003) und Digest (8004).
+// Sentiment (8001), Pattern (8002), Prompt (8003), Digest (8004)
+// und Transcribe (8005, Whisper Speech-to-Text).
 const PORTS = {
   sentiment: 8001,
   pattern: 8002,
   prompt: 8003,
   digest: 8004,
+  transcribe: 8005,
 } as const;
 
 type AgentName = keyof typeof PORTS;
@@ -152,6 +154,15 @@ export type KeywordsResult = {
   keywords: KeywordItem[];
 };
 
+/** Ergebnis des Transcribe-Agents (Whisper Speech-to-Text). */
+export type TranscriptionResult = {
+  text: string;
+  /** Automatisch erkannte Sprache ("de", "en", …). */
+  language: string;
+  language_probability: number;
+  duration: number;
+};
+
 /** Ergebnis des Prompt-Agents (reflektive Fragen). */
 export type PromptResponse = {
   question: string;
@@ -216,6 +227,68 @@ export function detectPatterns(days = 7): Promise<PatternResult> {
     { method: 'POST', body: JSON.stringify({ days }) },
     300000,
   );
+}
+
+/** Transkribiert eine Audio-Aufnahme lokal per Whisper (Transcribe-Agent).
+ *  Die Sprache (Deutsch/Englisch) wird automatisch erkannt. Multipart-Upload,
+ *  deshalb nicht über den JSON-`request`-Helper: Der Browser/RN setzt den
+ *  Content-Type mit Boundary selbst. Native schickt die Datei-URI direkt,
+ *  im Web wird die Blob-URL der MediaRecorder-Aufnahme erst geladen. */
+export async function transcribeAudio(uri: string): Promise<TranscriptionResult> {
+  const url = `${baseUrl('transcribe')}/transcribe`;
+  try {
+    if (uri.startsWith('blob:') || uri.startsWith('data:')) {
+      // Web: MediaRecorder liefert eine Blob-URL (webm/mp4 je nach Browser)
+      const blob = await (await fetch(uri)).blob();
+      const ext = blob.type.includes('webm') ? 'webm' : 'm4a';
+      const form = new FormData();
+      form.append('file', new File([blob], `recording.${ext}`, { type: blob.type || 'audio/webm' }));
+      const res = await fetch(url, { method: 'POST', body: form });
+      if (!res.ok) throw new Error(`HTTP ${res.status} von ${url}`);
+      return (await res.json()) as TranscriptionResult;
+    }
+
+    // Nativ: Upload über React Natives XMLHttpRequest statt fetch/expo-file-system.
+    // Grund: `expo/fetch` (globales fetch) akzeptiert kein { uri }-FormData-Teil
+    // ("Unsupported FormDataPart implementation") und expo-file-system darf in
+    // Expo Go den Aufnahme-Ordner von expo-audio nicht lesen ("Missing 'READ'
+    // permission" / "isn't readable"). RNs eigener Netzwerk-Stack liest die
+    // Datei nativ und kennt beide Einschränkungen nicht.
+    return await new Promise<TranscriptionResult>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.timeout = 300000;
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          try {
+            resolve(JSON.parse(xhr.responseText) as TranscriptionResult);
+          } catch {
+            reject(new Error(`Ungültige Antwort von ${url}`));
+          }
+        } else {
+          reject(new Error(`HTTP ${xhr.status} von ${url}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error(`Netzwerkfehler beim Upload (${url})`));
+      xhr.ontimeout = () => reject(new Error(`Zeitüberschreitung beim Upload (${url})`));
+
+      const ext = uri.split('.').pop()?.toLowerCase() ?? 'm4a';
+      const form = new FormData();
+      form.append('file', {
+        uri,
+        name: `recording.${ext}`,
+        type: `audio/${ext}`,
+      } as unknown as Blob);
+      xhr.send(form);
+    });
+  } catch (e) {
+    // Netzwerkfehler um die Ziel-URL anreichern – "Network request failed"
+    // allein verrät nicht, welchen Host die App erreichen wollte.
+    if (e instanceof Error && !e.message.includes(url)) {
+      throw new Error(`${e.message} (${url})`);
+    }
+    throw e;
+  }
 }
 
 /** Generiert eine reflektive Frage basierend auf dem Journal-Text (Prompt-Agent).

@@ -3,10 +3,19 @@
  *
  * Angelehnt an klassische Notiz-Apps: „Aa" öffnet das Format-Panel
  * (Schrift, Größe, Ausrichtung, Farbe), daneben Bild hinzufügen und
- * Diktieren. Der Mikro-Button pulsiert während der Aufnahme.
+ * Spracheingabe. Der Mikro-Button pulsiert während der Aufnahme; während
+ * Whisper transkribiert, zeigt er einen Spinner.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Animated,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme/colors';
 import { serif } from '../../theme/typography';
@@ -18,7 +27,8 @@ type Props = {
   onToggleFormat: () => void;
   onAddImage: () => void;
   dictating: boolean;
-  dictationSupported: boolean;
+  /** Aufnahme ist beim Transcribe-Agenten (Whisper) in Arbeit. */
+  transcribing?: boolean;
   onToggleDictation: () => void;
 };
 
@@ -27,7 +37,7 @@ export function KeyboardToolbar({
   onToggleFormat,
   onAddImage,
   dictating,
-  dictationSupported,
+  transcribing,
   onToggleDictation,
 }: Props) {
   // Aufnahme-Puls: der rote Mikro-Button „atmet", solange diktiert wird
@@ -74,17 +84,23 @@ export function KeyboardToolbar({
           style={[styles.pill, dictating && styles.pillRecording]}
           onPress={onToggleDictation}
           activeOpacity={0.7}
-          accessibilityLabel={dictating ? 'Diktieren beenden' : 'Diktieren starten'}
+          disabled={transcribing}
+          accessibilityLabel={dictating ? 'Aufnahme beenden' : 'Aufnahme starten'}
         >
-          <Ionicons
-            name={dictating ? 'mic' : 'mic-outline'}
-            size={20}
-            color={dictating ? '#fff' : dictationSupported ? colors.text : colors.textFaint}
-          />
+          {transcribing ? (
+            <ActivityIndicator size="small" color={colors.textMuted} />
+          ) : (
+            <Ionicons
+              name={dictating ? 'mic' : 'mic-outline'}
+              size={20}
+              color={dictating ? '#fff' : colors.text}
+            />
+          )}
         </TouchableOpacity>
       </Animated.View>
 
       {dictating && <Text style={styles.recordingHint}>Ich höre zu …</Text>}
+      {transcribing && <Text style={styles.transcribingHint}>Transkribiere …</Text>}
     </View>
   );
 }
@@ -117,4 +133,5 @@ const styles = StyleSheet.create({
   aa: { fontFamily: serif, fontSize: 17, fontWeight: '700', color: colors.text },
   aaActive: { color: '#fff' },
   recordingHint: { fontSize: 13, color: '#D9534F', fontWeight: '600' },
+  transcribingHint: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
 });

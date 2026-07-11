@@ -125,9 +125,27 @@ services:
       - clarity-network
     restart: unless-stopped
 
+  # Speech-to-Text mit Whisper (lokal, ohne Ollama/LLM). Das Modell wird
+  # beim ersten Start heruntergeladen und im Volume gecacht.
+  agent_transcribe:
+    build:
+      context: ./backend/agent_transcribe
+    container_name: clarity_transcribe
+    ports:
+      - "8005:8000"
+    environment:
+      - WHISPER_MODEL=small
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - whisper_models:/root/.cache/huggingface
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
 networks:
   clarity-network:
     driver: bridge
 
 volumes:
   ollama_data:
+  whisper_models:

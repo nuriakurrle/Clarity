@@ -16,7 +16,8 @@
  * - „Aa" klappt das Format-Panel auf (Schrift, Größe, Ausrichtung, Farbe);
  *   formatiert wird zeilenweise – jede Zeile ist ein eigener Block (BlockEditor)
  * - Bild-Button hängt Fotos aus der Galerie an (bleiben lokal auf dem Gerät)
- * - Mikro diktiert per Web Speech API auf Deutsch in den Eintrag
+ * - Mikro nimmt die Stimme auf und transkribiert sie lokal per Whisper
+ *   (Transcribe-Agent, Deutsch/Englisch automatisch) in den Eintrag
  * - Stimmung wird oben unterm Datum gewählt (MoodBar), nicht mehr im Footer
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -45,8 +46,8 @@ import {
 } from '../components/entry';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Block, BlockEditorHandle, newBlockId } from '../components/entry/BlockEditor';
-import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
-import { useDictation } from '../hooks/useDictation';
+import { DEFAULT_FORMAT, EditorFormat } from '../components/entry/EditorToolbar';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { analyzeEntry, detectPatterns } from '../services/api';
 import { notifyOnNewPatterns } from '../services/notifications';
@@ -138,8 +139,8 @@ export default function EntryScreen({ onDone }: Props) {
   // iOS schiebt schon die KeyboardAvoidingView – nur Android braucht Padding
   const keyboardPad = Platform.OS === 'android' ? keyboardHeight : 0;
 
-  // Diktierte Sätze ans Ende der letzten Zeile anhängen (mit Leerzeichen davor)
-  const dictation = useDictation((text) =>
+  // Transkribierten Text ans Ende der letzten Zeile anhängen (mit Leerzeichen davor)
+  const voice = useVoiceRecorder((text) =>
     setBlocks((prev) => {
       const last = prev[prev.length - 1];
       const merged = last.text.trim() ? `${last.text.trimEnd()} ${text}` : text;
@@ -158,17 +159,30 @@ export default function EntryScreen({ onDone }: Props) {
     setImages((prev) => [...prev, ...uris.filter((u) => !prev.includes(u))]);
   };
 
-  const handleToggleDictation = () => {
-    if (!dictation.supported) {
-      Alert.alert(
-        'Diktieren nicht verfügbar',
-        'Spracheingabe läuft aktuell im Browser (Chrome/Edge/Safari). In der nativen App folgt sie mit einem Development-Build.',
-      );
+  const handleToggleDictation = async () => {
+    if (voice.transcribing) return; // läuft schon – Ergebnis abwarten
+    if (voice.recording) {
+      await voice.stop();
       return;
     }
-    if (dictation.listening) dictation.stop();
-    else dictation.start();
+    await voice.start();
   };
+
+  // Fehler aus dem Recorder als Alert melden (Berechtigung/Backend), auf Web
+  // ist Alert ein No-op → window.alert.
+  useEffect(() => {
+    if (!voice.error) return;
+    const message =
+      voice.error === 'permission'
+        ? 'Bitte erlaube den Mikrofon-Zugriff, um deine Stimme aufzunehmen.'
+        : 'Die Aufnahme konnte nicht transkribiert werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?' +
+          (voice.errorDetail ? `\n\nDetails: ${voice.errorDetail}` : '');
+    if (Platform.OS === 'web') {
+      (globalThis as { alert?: (msg: string) => void }).alert?.(message);
+    } else {
+      Alert.alert('Spracheingabe', message);
+    }
+  }, [voice.error]);
 
   const discardDraft = () => AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
 
@@ -316,12 +330,6 @@ export default function EntryScreen({ onDone }: Props) {
             />
           </View>
 
-          {/* Live-Vorschau des gerade gesprochenen Satzes (landet in der letzten Zeile) */}
-          {dictation.listening && dictation.interim ? (
-            <Text style={[styles.interim, formatToStyle(blocks[blocks.length - 1].format)]}>
-              {dictation.interim}…
-            </Text>
-          ) : null}
         </ScrollView>
 
         {/* Editor-Leiste: sitzt über der Tastatur (KeyboardAvoidingView schiebt
@@ -336,8 +344,8 @@ export default function EntryScreen({ onDone }: Props) {
             formatOpen={formatOpen}
             onToggleFormat={() => setFormatOpen((v) => !v)}
             onAddImage={handleAddImage}
-            dictating={dictation.listening}
-            dictationSupported={dictation.supported}
+            dictating={voice.recording}
+            transcribing={voice.transcribing}
             onToggleDictation={handleToggleDictation}
           />
         </View>
@@ -407,8 +415,6 @@ const styles = StyleSheet.create({
   editor: {
     marginTop: 12,
   },
-  // Gesprochener Satz, solange er noch nicht final erkannt ist
-  interim: { opacity: 0.45, marginTop: 4 },
   // zIndex: Editor-Leiste samt Format-Panel liegt ÜBER dem Prompt-Orb –
   // klappt das Panel auf, verschwindet der (kleine) Orb dahinter statt
   // es zu überlagern.
