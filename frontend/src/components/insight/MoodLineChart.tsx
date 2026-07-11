@@ -13,7 +13,12 @@ import { colors } from '../../theme/colors';
 
 export type MoodPoint = { label: string; valence: number };
 
-type Props = { data: MoodPoint[]; height?: number };
+type Props = {
+  data: MoodPoint[];
+  height?: number;
+  /** false, wenn der Aufrufer die Labels schon ausgedünnt hat (leere Strings). */
+  thinLabels?: boolean;
+};
 
 /** '#RRGGBB' + Deckkraft → 'rgba(r,g,b,a)' (chart-kit gibt die Opacity vor). */
 function rgba(hex: string, opacity = 1): string {
@@ -21,11 +26,11 @@ function rgba(hex: string, opacity = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
-export function MoodLineChart({ data, height = 200 }: Props) {
+export function MoodLineChart({ data, height = 200, thinLabels = true }: Props) {
   const [width, setWidth] = useState(0);
 
   // Bei vielen Punkten nicht jede Beschriftung zeigen, sonst überlappt es.
-  const step = Math.max(1, Math.ceil(data.length / 6));
+  const step = thinLabels ? Math.max(1, Math.ceil(data.length / 6)) : 1;
   const labels = data.map((d, i) => (i % step === 0 ? d.label : ''));
   const values = data.map(
     (d) => Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100),
@@ -47,10 +52,12 @@ export function MoodLineChart({ data, height = 200 }: Props) {
             backgroundGradientFrom: colors.surface,
             backgroundGradientTo: colors.surface,
             decimalPlaces: 0,
-            color: (o = 1) => rgba(colors.primary, o),
+            // Tinte statt Akzent-Grün: fügt sich in den Schwarz-Weiß-Look
+            // der App ein, die Fläche darunter bleibt bewusst hauchzart.
+            color: (o = 1) => rgba(colors.text, o),
             labelColor: (o = 1) => rgba(colors.textMuted, o),
-            fillShadowGradientFrom: colors.primary,
-            fillShadowGradientFromOpacity: 0.2,
+            fillShadowGradientFrom: colors.text,
+            fillShadowGradientFromOpacity: 0.08,
             fillShadowGradientTo: colors.surface,
             fillShadowGradientToOpacity: 0,
             propsForDots: { r: '4', strokeWidth: '2', stroke: colors.surface },

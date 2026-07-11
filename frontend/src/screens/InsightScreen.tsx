@@ -48,6 +48,13 @@ function localIso(date: Date): string {
 /** created_at ("YYYY-MM-DD HH:MM:SS", UTC) → Millisekunden. */
 const parseUtc = (s: string) => Date.parse(`${s.replace(' ', 'T')}Z`);
 
+/** Montag (lokale Zeit) der Woche, in der das Datum liegt. */
+function mondayOf(date: Date): Date {
+  const m = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+  return m;
+}
+
 /** Zusammenhängende Tage in Folge bis zum letzten Eintrag. */
 function calcStreak(localDates: string[]): number {
   const dates = [...new Set(localDates)].sort();
@@ -109,10 +116,22 @@ function buildMoodPoints(profile: MoodProfile, range: Range): MoodPoint[] {
     }));
   }
 
-  return days.map((d) => ({
-    label: `${parseInt(d.date.slice(8, 10), 10)}.`,
-    valence: d.average_valence,
-  }));
+  // Monat: Tagespunkte behalten (die Kurve zeigt weiterhin jede Schwankung),
+  // aber die X-Achse pro Kalenderwoche beschriften: Der erste Datenpunkt
+  // einer Woche trägt „von–bis" („29.–5."), alle weiteren bleiben leer.
+  let lastWeekKey = '';
+  return days.map((d) => {
+    const monday = mondayOf(new Date(`${d.date}T12:00:00`));
+    const key = localIso(monday);
+    let label = '';
+    if (key !== lastWeekKey) {
+      lastWeekKey = key;
+      const sunday = new Date(monday);
+      sunday.setDate(sunday.getDate() + 6);
+      label = `${monday.getDate()}.–${sunday.getDate()}.`;
+    }
+    return { label, valence: d.average_valence };
+  });
 }
 
 // --- Screen -----------------------------------------------------------------
@@ -184,7 +203,7 @@ export default function InsightScreen() {
               Backend nicht erreichbar. Läuft „docker compose up" und bist du im selben WLAN?
             </Text>
           ) : points.length > 0 ? (
-            <MoodLineChart data={points} />
+            <MoodLineChart data={points} thinLabels={range !== 'Monat'} />
           ) : (
             <Text style={styles.hint}>
               Noch keine Einträge in diesem Zeitraum – schreib deinen ersten!

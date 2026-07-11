@@ -398,7 +398,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  date: { fontSize: 13, color: colors.warm, fontWeight: '600' },
+  // Neutral wie die Datumszeilen in Verlauf/Kalender (früher: Orange/warm)
+  date: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
   title: {
     fontFamily: serif,
     fontSize: 28,

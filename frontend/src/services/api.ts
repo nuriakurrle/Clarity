@@ -190,6 +190,17 @@ export function analyzeEntry(text: string, selfReportedMood?: string): Promise<A
   );
 }
 
+/** Aktualisiert den Text eines bestehenden Eintrags (Sentiment-Agent).
+ *  Die Sentiment-Analyse läuft danach im Hintergrund neu. */
+export function updateEntry(entryId: number, text: string): Promise<AnalyzeResult> {
+  return request<AnalyzeResult>(
+    'sentiment',
+    `/entries/${entryId}`,
+    { method: 'PUT', body: JSON.stringify({ text }) },
+    30000,
+  );
+}
+
 /** Longitudinales Stimmungsprofil der letzten `days` Tage (Sentiment-Agent). */
 export function fetchMoodProfile(days = 7): Promise<MoodProfile> {
   return request<MoodProfile>('sentiment', `/mood-profile?days=${days}`);

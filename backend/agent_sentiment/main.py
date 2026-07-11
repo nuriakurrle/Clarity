@@ -1,7 +1,7 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
 import os, json, re, logging, sys
 from collections import defaultdict
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -13,7 +13,7 @@ sys.path.insert(0, '/app/shared')
 from database import (
     init_db, save_sentiment, save_entry, get_mood_profile,
     save_mood_profile, calculate_mood_trend, get_emotional_summary,
-    get_entries_with_sentiment, get_db_connection
+    get_entries_with_sentiment, get_db_connection, update_entry_content
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -145,6 +145,25 @@ Rules:
     except Exception as e:
         # Kein Re-Raise: Hintergrund-Task, der Eintrag selbst ist gespeichert.
         logger.error(f"❌ Analysis failed for entry {entry_id}: {e}")
+
+class UpdateEntryInput(BaseModel):
+    text: str
+
+@app.put("/entries/{entry_id}")
+async def update_entry(entry_id: int, input: UpdateEntryInput, background_tasks: BackgroundTasks):
+    """
+    Update the text of an existing entry (edit from the app's detail view).
+    Save-first like /analyze: the new text is persisted immediately, then the
+    sentiment analysis re-runs as a background task so history/insights use
+    the edited content.
+    """
+    if not input.text.strip():
+        raise HTTPException(status_code=400, detail="Entry text must not be empty")
+    if not update_entry_content(entry_id, input.text):
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+    logger.info(f"✏️ Updated entry {entry_id}: {input.text[:50]}...")
+    background_tasks.add_task(run_analysis, entry_id, TextInput(text=input.text, entry_id=entry_id))
+    return {"entry_id": entry_id, "status": "queued"}
 
 @app.get("/entries")
 async def list_entries():

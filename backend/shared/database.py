@@ -137,6 +137,16 @@ def save_entry(content: str) -> int:
     conn.close()
     return entry_id
 
+def update_entry_content(entry_id: int, content: str) -> bool:
+    """Update the text of an existing entry. Returns False if it doesn't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE entries SET content = ? WHERE id = ?", (content, entry_id))
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
 def save_sentiment(
     entry_id: int, 
     sentiment: str, 

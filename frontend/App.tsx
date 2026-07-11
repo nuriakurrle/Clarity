@@ -46,7 +46,13 @@ export default function App() {
   if (showEntry) {
     screen = <EntryScreen onDone={closeEntry} />;
   } else if (viewEntry) {
-    screen = <EntryDetailScreen entry={viewEntry} onClose={() => setViewEntry(null)} />;
+    screen = (
+      <EntryDetailScreen
+        entry={viewEntry}
+        onClose={() => setViewEntry(null)}
+        onUpdated={setViewEntry}
+      />
+    );
   } else if (tab === 'home') {
     screen = <HomeScreen onWrite={openEntry} />;
   } else if (tab === 'search') {
