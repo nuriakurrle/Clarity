@@ -5,6 +5,7 @@
 import React from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { colors } from '../theme/colors';
 
 // Dunkle Tab-Bar: schwarzer Grund, weiße Icons (inaktiv gedimmt),
@@ -38,6 +39,13 @@ type Props = {
 };
 
 export function BottomNav({ active, onChange, onPressAdd }: Props) {
+  const handlePressAdd = () => {
+    // Kurzes haptisches Feedback beim Öffnen des Eintrag-Editors; fire-and-forget,
+    // auf Geräten ohne Vibrationsmotor schlägt das Promise still fehl.
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    onPressAdd();
+  };
+
   return (
     <View style={styles.wrap}>
       <View style={styles.bar}>
@@ -53,7 +61,7 @@ export function BottomNav({ active, onChange, onPressAdd }: Props) {
       </View>
 
       <View style={styles.fabWrap}>
-        <TouchableOpacity style={styles.fab} onPress={onPressAdd} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.fab} onPress={handlePressAdd} activeOpacity={0.85}>
           <Ionicons name="add" size={26} color={NAV_BG} />
         </TouchableOpacity>
         <View style={[styles.dot, { opacity: active === 'entry' ? 1 : 0 }]} />

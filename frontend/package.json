@@ -17,6 +17,7 @@
     "expo-audio": "~56.0.12",
     "expo-constants": "~56.0.20",
     "expo-font": "~56.0.7",
+    "expo-haptics": "~56.0.3",
     "expo-image-picker": "~56.0.20",
     "expo-linear-gradient": "~56.0.4",
     "expo-notifications": "~56.0.19",
