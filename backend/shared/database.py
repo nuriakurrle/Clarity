@@ -185,6 +185,20 @@ def save_entry_image(entry_id: int, filename: str) -> None:
     conn.commit()
     conn.close()
 
+def delete_entry_image(entry_id: int, filename: str) -> bool:
+    """Detach one image from an entry (DB row only – the caller removes the
+    file). Returns False if no such image exists for this entry."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM entry_images WHERE entry_id = ? AND filename = ?",
+        (entry_id, filename),
+    )
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
 def get_entry_images(entry_id: int) -> list:
     """Filenames of all images attached to an entry (oldest first)."""
     conn = get_db_connection()

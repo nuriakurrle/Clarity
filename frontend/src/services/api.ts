@@ -208,6 +208,19 @@ export function updateEntry(entryId: number, text: string): Promise<AnalyzeResul
   );
 }
 
+/** Entfernt ein einzelnes Bild eines Eintrags (DB-Zeile + Datei, Sentiment-Agent). */
+export function deleteEntryImage(
+  entryId: number,
+  filename: string,
+): Promise<{ entry_id: number; filename: string; status: string }> {
+  return request(
+    'sentiment',
+    `/entries/${entryId}/images/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' },
+    30000,
+  );
+}
+
 /** Löscht einen Eintrag samt Analyse-Daten endgültig (Sentiment-Agent). */
 export function deleteEntry(entryId: number): Promise<{ entry_id: number; status: string }> {
   return request<{ entry_id: number; status: string }>(

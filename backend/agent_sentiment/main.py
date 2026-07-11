@@ -15,7 +15,7 @@ from database import (
     init_db, save_sentiment, save_entry, get_mood_profile,
     save_mood_profile, calculate_mood_trend, get_emotional_summary,
     get_entries_with_sentiment, get_db_connection, update_entry_content,
-    delete_entry, save_entry_image, get_entry_images
+    delete_entry, save_entry_image, get_entry_images, delete_entry_image
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -210,6 +210,22 @@ async def upload_entry_image(entry_id: int, file: UploadFile = File(...)):
     save_entry_image(entry_id, filename)
     logger.info(f"🖼️ Saved image for entry {entry_id}: {filename} ({len(data)} bytes)")
     return {"entry_id": entry_id, "filename": filename}
+
+@app.delete("/entries/{entry_id}/images/{filename}")
+async def delete_entry_image_endpoint(entry_id: int, filename: str):
+    """Remove a single image from an entry (DB row and file on disk)."""
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not delete_entry_image(entry_id, filename):
+        raise HTTPException(
+            status_code=404, detail=f"Image {filename} not found for entry {entry_id}"
+        )
+    try:
+        os.unlink(os.path.join(IMAGES_DIR, filename))
+    except OSError:
+        pass  # Datei fehlt schon – DB ist die Quelle der Wahrheit
+    logger.info(f"🗑️ Deleted image {filename} from entry {entry_id}")
+    return {"entry_id": entry_id, "filename": filename, "status": "deleted"}
 
 @app.get("/images/{filename}")
 async def get_image(filename: str):

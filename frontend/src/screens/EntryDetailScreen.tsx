@@ -17,7 +17,9 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -29,7 +31,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { EntryImages } from '../components/entry';
-import { EntryRecord, deleteEntry, entryImageUrl, updateEntry } from '../services/api';
+import {
+  EntryRecord,
+  deleteEntry,
+  deleteEntryImage,
+  entryImageUrl,
+  updateEntry,
+} from '../services/api';
 import { colors, moodColor, moodLabel, valenceToMoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -69,6 +77,8 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
   const [editBody, setEditBody] = useState('');
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Dateiname des Bildes, das gerade im Vollbild-Viewer offen ist
+  const [viewerImage, setViewerImage] = useState<string | null>(null);
 
   const { dateLabel, timeLabel } = useMemo(() => {
     const d = parseCreatedAt(entry.created_at);
@@ -107,6 +117,37 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
   };
 
   const cancelEditing = () => setEditing(false);
+
+  // URL einer Bild-Kachel → gespeicherter Dateiname (letztes Pfadsegment)
+  const filenameFromUrl = (url: string) => decodeURIComponent(url.split('/').pop() ?? '');
+
+  // Einzelnes Bild mit Nachfrage löschen (DB-Zeile + Datei im Backend);
+  // der aktualisierte Eintrag geht über onUpdated an App.tsx.
+  const confirmImageDelete = (filename: string) => {
+    const doDelete = async () => {
+      try {
+        await deleteEntryImage(entry.id, filename);
+        setViewerImage(null);
+        onUpdated?.({
+          ...entry,
+          images: (entry.images ?? []).filter((f) => f !== filename),
+        });
+      } catch {
+        showError(
+          'Das Bild konnte nicht gelöscht werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?',
+        );
+      }
+    };
+    if (Platform.OS === 'web') {
+      const confirm = (globalThis as { confirm?: (msg: string) => boolean }).confirm;
+      if (!confirm || confirm('Bild endgültig löschen?')) doDelete();
+      return;
+    }
+    Alert.alert('Bild löschen?', 'Das kann nicht rückgängig gemacht werden.', [
+      { text: 'Abbrechen' },
+      { text: 'Löschen', style: 'destructive', onPress: doDelete },
+    ]);
+  };
 
   // Löschen mit Nachfrage – entfernt den Eintrag samt Analyse-Daten in der DB
   // (DELETE /entries/{id}) und schließt danach die Vollansicht. Verlauf und
@@ -243,15 +284,28 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
                 multiline
                 textAlignVertical="top"
               />
+              {/* Bilder auch beim Bearbeiten zeigen; das „ד löscht einzelne
+                  Bilder (mit Nachfrage) direkt aus DB + Dateisystem */}
+              {entry.images && entry.images.length > 0 ? (
+                <View style={styles.imagesWrap}>
+                  <EntryImages
+                    uris={entry.images.map(entryImageUrl)}
+                    onRemove={(uri) => confirmImageDelete(filenameFromUrl(uri))}
+                  />
+                </View>
+              ) : null}
             </>
           ) : (
             <>
               {title ? <Text style={styles.title}>{title}</Text> : null}
               {body ? <Text style={styles.body}>{body}</Text> : null}
-              {/* Angehängte Bilder (reine Anzeige, ohne Entfernen-Kreuz) */}
+              {/* Angehängte Bilder – Tippen öffnet den Vollbild-Viewer */}
               {entry.images && entry.images.length > 0 ? (
                 <View style={styles.imagesWrap}>
-                  <EntryImages uris={entry.images.map(entryImageUrl)} />
+                  <EntryImages
+                    uris={entry.images.map(entryImageUrl)}
+                    onPress={(uri) => setViewerImage(filenameFromUrl(uri))}
+                  />
                 </View>
               ) : null}
             </>
@@ -280,6 +334,41 @@ export default function EntryDetailScreen({ entry, onClose, onUpdated }: Props) 
             </TouchableOpacity>
           </View>
         ) : null}
+
+        {/* Vollbild-Viewer: dunkler Hintergrund, Bild eingepasst; „X" schließt,
+            der Mülleimer löscht genau dieses Bild (mit Nachfrage). */}
+        <Modal
+          visible={viewerImage != null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setViewerImage(null)}
+        >
+          <View style={styles.viewerBackdrop}>
+            {viewerImage ? (
+              <Image
+                source={{ uri: entryImageUrl(viewerImage) }}
+                style={styles.viewerImage}
+                resizeMode="contain"
+              />
+            ) : null}
+            <TouchableOpacity
+              style={[styles.viewerButton, styles.viewerClose]}
+              onPress={() => setViewerImage(null)}
+              hitSlop={10}
+              accessibilityLabel="Vollbild schließen"
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.viewerButton, styles.viewerDelete]}
+              onPress={() => viewerImage && confirmImageDelete(viewerImage)}
+              hitSlop={10}
+              accessibilityLabel="Bild löschen"
+            >
+              <Ionicons name="trash-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </Modal>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -311,6 +400,26 @@ const styles = StyleSheet.create({
   // marginTop trägt den Abstand – funktioniert mit und ohne Überschrift
   body: { fontSize: 16, lineHeight: 24, color: colors.text, marginTop: 12 },
   imagesWrap: { marginTop: 12 },
+  // Vollbild-Viewer
+  viewerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerImage: { width: '100%', height: '100%' },
+  viewerButton: {
+    position: 'absolute',
+    top: 48,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewerClose: { right: 20 },
+  viewerDelete: { left: 20 },
   // Eingabefelder im Look der Anzeige (Titel serif, Text wie body)
   titleInput: {
     fontFamily: serif,

@@ -13,9 +13,11 @@ import { colors } from '../../theme/colors';
 type Props = {
   uris: string[];
   onRemove?: (uri: string) => void;
+  /** Tippen auf die Kachel (z. B. Vollbild-Ansicht in der Eintrags-Vollansicht). */
+  onPress?: (uri: string) => void;
 };
 
-export function EntryImages({ uris, onRemove }: Props) {
+export function EntryImages({ uris, onRemove, onPress }: Props) {
   if (uris.length === 0) return null;
 
   return (
@@ -27,7 +29,14 @@ export function EntryImages({ uris, onRemove }: Props) {
     >
       {uris.map((uri) => (
         <View key={uri} style={styles.tile}>
-          <Image source={{ uri }} style={styles.image} />
+          <TouchableOpacity
+            onPress={onPress ? () => onPress(uri) : undefined}
+            activeOpacity={onPress ? 0.8 : 1}
+            disabled={!onPress}
+            accessibilityLabel={onPress ? 'Bild in Vollbild öffnen' : undefined}
+          >
+            <Image source={{ uri }} style={styles.image} />
+          </TouchableOpacity>
           {onRemove ? (
             <TouchableOpacity
               style={styles.remove}
