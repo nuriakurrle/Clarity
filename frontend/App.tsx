@@ -18,33 +18,43 @@ import { BottomNav, TabKey } from './src/components';
 import HomeScreen from './src/screens/HomeScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import EntryScreen from './src/screens/EntryScreen';
+import EntryDetailScreen from './src/screens/EntryDetailScreen';
 import InsightScreen from './src/screens/InsightScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
+import { EntryRecord } from './src/services/api';
 import { colors } from './src/theme/colors';
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home');
   const [showEntry, setShowEntry] = useState(false);
+  // Angetippter Eintrag aus Verlauf/Kalender → Vollansicht (read-only)
+  const [viewEntry, setViewEntry] = useState<EntryRecord | null>(null);
 
-  const openEntry = () => setShowEntry(true);
+  const openEntry = () => {
+    setViewEntry(null);
+    setShowEntry(true);
+  };
   const closeEntry = () => setShowEntry(false);
 
   const changeTab = (key: TabKey) => {
     setShowEntry(false);
+    setViewEntry(null);
     setTab(key);
   };
 
   let screen: React.ReactNode;
   if (showEntry) {
     screen = <EntryScreen onDone={closeEntry} />;
+  } else if (viewEntry) {
+    screen = <EntryDetailScreen entry={viewEntry} onClose={() => setViewEntry(null)} />;
   } else if (tab === 'home') {
     screen = <HomeScreen onWrite={openEntry} />;
   } else if (tab === 'search') {
-    screen = <SearchScreen />;
+    screen = <SearchScreen onOpenEntry={setViewEntry} />;
   } else if (tab === 'insight') {
     screen = <InsightScreen />;
   } else {
-    screen = <CalendarScreen />;
+    screen = <CalendarScreen onOpenEntry={setViewEntry} />;
   }
 
   return (

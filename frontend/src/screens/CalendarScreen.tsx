@@ -116,7 +116,12 @@ function buildDistribution(dayEntries: EntryRecord[]): DayMood[] {
     .sort((a, b) => b.percent - a.percent);
 }
 
-export default function CalendarScreen() {
+type Props = {
+  /** Öffnet die Vollansicht eines angetippten Eintrags (siehe App.tsx). */
+  onOpenEntry?: (entry: EntryRecord) => void;
+};
+
+export default function CalendarScreen({ onOpenEntry }: Props) {
   const today = new Date();
   const todayKey = toKey(today);
 
@@ -493,7 +498,14 @@ export default function CalendarScreen() {
                     e.content.length > 140
                       ? `${e.content.slice(0, 140).trimEnd()}…`
                       : e.content;
-                  return <EntryCard key={e.id} time={time} text={text} />;
+                  return (
+                    <EntryCard
+                      key={e.id}
+                      time={time}
+                      text={text}
+                      onPress={onOpenEntry ? () => onOpenEntry(e) : undefined}
+                    />
+                  );
                 })}
               </View>
             ) : (
