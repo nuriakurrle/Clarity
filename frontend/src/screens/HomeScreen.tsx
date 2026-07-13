@@ -153,7 +153,13 @@ export default function HomeScreen({ onWrite }: Props) {
         <MoodMirrorBlob onWrite={onWrite} minHeight={viewportH || undefined} />
 
         <View style={styles.body} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
-          <SectionLabel text="Tonverlauf" />
+          {/* Überschrift über dem gesamten Digest-Abschnitt (Weekly Digest) */}
+          <Text style={styles.digestTitle}>Wochenrückblick</Text>
+          <Text style={styles.digestSubtitle}>Was deine Einträge über die Woche erzählen</Text>
+
+          <View style={styles.spacer24}>
+            <SectionLabel text="Tonverlauf" />
+          </View>
           {digest ? (
             <View
               style={styles.sectionContent}
@@ -229,6 +235,21 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, paddingBottom: 24 },
   body: { paddingHorizontal: 20, paddingTop: 24 },
+  // Überschrift des Wochenrückblick-Abschnitts – Serif wie die Wortmarke,
+  // damit der Abschnitt als eigenes „Kapitel" unter dem Hero lesbar ist.
+  digestTitle: {
+    fontFamily: serif,
+    fontSize: 26,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  digestSubtitle: {
+    marginTop: 4,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textMuted,
+  },
+  spacer24: { marginTop: 24 },
   footerPrivacy: { marginTop: 28, marginBottom: 8 },
   spacer32: { marginTop: 32 },
   sectionContent: { marginTop: 12, gap: 12 },

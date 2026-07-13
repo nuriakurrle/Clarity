@@ -210,6 +210,8 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
   const drifts = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
   const breath = useRef(new Animated.Value(0)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
+  // Sanftes Auf-und-ab-Wippen des Scroll-Hinweises am unteren Hero-Rand.
+  const bob = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const loops = [
@@ -217,6 +219,7 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
       makeLoop(drifts[1], 5600),
       makeLoop(drifts[2], 6800),
       makeLoop(breath, 4800),
+      makeLoop(bob, 1500),
     ];
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
@@ -426,6 +429,19 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
       </View>
 
       <PrivacyNote />
+
+      {/* Scroll-Hinweis: Der Wochenrückblick liegt unterhalb des
+          bildschirmfüllenden Heros und wird sonst leicht übersehen. */}
+      <Animated.View
+        style={[
+          styles.scrollCue,
+          { transform: [{ translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [0, 5] }) }] },
+        ]}
+        pointerEvents="none"
+      >
+        <Text style={styles.scrollCueText}>Wochenrückblick</Text>
+        <Text style={styles.scrollCueArrow}>↓</Text>
+      </Animated.View>
     </View>
   );
 }
@@ -474,5 +490,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: colors.textFaint,
     marginTop: 4,
+  },
+  scrollCue: { alignItems: 'center', marginTop: 14 },
+  // Gleiche Typo-Sprache wie die Datumszeile oben (Uppercase + Letterspacing),
+  // nur gedämpft – lädt zum Scrollen ein, ohne mit dem Blob zu konkurrieren.
+  scrollCueText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+  },
+  scrollCueArrow: {
+    fontSize: 15,
+    lineHeight: 18,
+    marginTop: 2,
+    color: colors.textMuted,
   },
 });
