@@ -80,9 +80,11 @@ export function MoodBar({ value, onChange }: Props) {
 const styles = StyleSheet.create({
   // Transparent auf dem Seiten-Hintergrund, keine eigene Karte
   card: {
-    marginTop: 12,
+    marginTop: 22,
   },
-  question: { fontSize: 12, fontWeight: '600', color: colors.textMuted, marginBottom: 10 },
+  // Bewusst präsenter als das Datum darüber (15) – die Frage ist der
+  // eigentliche Einstieg in den Eintrag.
+  question: { fontSize: 17, fontWeight: '600', color: colors.text, marginBottom: 14 },
   row: { flexDirection: 'row', justifyContent: 'space-between' },
   option: { alignItems: 'center', gap: 6, minWidth: 52 },
   dot: { width: 22, height: 22, borderRadius: 11, opacity: 0.85 },
@@ -101,7 +103,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignSelf: 'flex-start',
     gap: 6,
-    marginTop: 12,
+    marginTop: 22,
     paddingVertical: 4,
   },
   chipDot: { width: 12, height: 12, borderRadius: 6 },

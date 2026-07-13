@@ -157,7 +157,7 @@ export default function HomeScreen({ onWrite }: Props) {
           <Text style={styles.digestTitle}>Wochenrückblick</Text>
           <Text style={styles.digestSubtitle}>Was deine Einträge über die Woche erzählen</Text>
 
-          <View style={styles.spacer24}>
+          <View style={styles.firstSection}>
             <SectionLabel text="Tonverlauf" />
           </View>
           {digest ? (
@@ -180,7 +180,7 @@ export default function HomeScreen({ onWrite }: Props) {
             </Text>
           )}
 
-          <View style={styles.spacer32}>
+          <View style={styles.section}>
             <SectionLabel
               text="Themen, die wiederkehren"
               emphasis={
@@ -207,7 +207,7 @@ export default function HomeScreen({ onWrite }: Props) {
             )}
           </View>
 
-          <View style={styles.spacer32}>
+          <View style={styles.section}>
             <SectionLabel text="Reflexionsfrage" />
             <View style={styles.sectionContent}>
               {/* Bewusst ohne Typewriter (typingActive) – die Frage steht sofort da. */}
@@ -216,7 +216,7 @@ export default function HomeScreen({ onWrite }: Props) {
           </View>
 
           {digest?.affirmation ? (
-            <View style={styles.spacer32}>
+            <View style={styles.section}>
               <SectionLabel text="Ermutigung" />
               <View style={styles.sectionContent}>
                 <Text style={styles.affirmation}>{digest.affirmation}</Text>
@@ -234,7 +234,7 @@ export default function HomeScreen({ onWrite }: Props) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, paddingBottom: 24 },
-  body: { paddingHorizontal: 20, paddingTop: 24 },
+  body: { paddingHorizontal: 20, paddingTop: 36 },
   // Überschrift des Wochenrückblick-Abschnitts – Serif wie die Wortmarke,
   // damit der Abschnitt als eigenes „Kapitel" unter dem Hero lesbar ist.
   digestTitle: {
@@ -244,19 +244,22 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   digestSubtitle: {
-    marginTop: 4,
+    marginTop: 6,
     fontSize: 14,
     lineHeight: 20,
     color: colors.textMuted,
   },
-  spacer24: { marginTop: 24 },
-  footerPrivacy: { marginTop: 28, marginBottom: 8 },
-  spacer32: { marginTop: 32 },
-  sectionContent: { marginTop: 12, gap: 12 },
+  // Abstand Kapitel-Überschrift → erster Abschnitt bzw. zwischen den
+  // Abschnitten: großzügig, damit die Sektionen als Einheiten lesbar sind –
+  // innerhalb eines Abschnitts bleibt es bewusst dichter (sectionContent).
+  firstSection: { marginTop: 32 },
+  footerPrivacy: { marginTop: 36, marginBottom: 8 },
+  section: { marginTop: 44 },
+  sectionContent: { marginTop: 14, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  themeCard: { marginTop: 12 },
-  hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
+  themeCard: { marginTop: 14 },
+  hint: { marginTop: 14, fontSize: 14, lineHeight: 20, color: colors.textMuted },
   affirmation: {
     fontFamily: serif,
     fontStyle: 'italic',

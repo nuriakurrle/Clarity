@@ -428,7 +428,7 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
         <Text style={styles.hint}>Tippe, um zu schreiben</Text>
       </View>
 
-      <PrivacyNote />
+      <PrivacyNote style={styles.privacy} />
 
       {/* Scroll-Hinweis: Der Wochenrückblick liegt unterhalb des
           bildschirmfüllenden Heros und wird sonst leicht übersehen. */}
@@ -439,7 +439,7 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
         ]}
         pointerEvents="none"
       >
-        <Text style={styles.scrollCueText}>Wochenrückblick</Text>
+        <Text style={styles.scrollCueText}>Scroll</Text>
         <Text style={styles.scrollCueArrow}>↓</Text>
       </Animated.View>
     </View>
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     color: '#000000', // reines Schwarz auf reinem Weiß – maximaler Kontrast
     textTransform: 'uppercase',
-    marginTop: 8,
+    marginTop: 16,
   },
   question: {
     fontFamily: serif,
@@ -478,8 +478,8 @@ const styles = StyleSheet.create({
     lineHeight: 31,
     fontWeight: '600',
     color: '#000000',
-    marginTop: 12,
-    textAlign: 'left',
+    marginTop: 22,
+    textAlign: 'center',
     alignSelf: 'stretch',
   },
   // Blob leicht oberhalb der Mitte zwischen Frage und Hinweis –
@@ -489,9 +489,10 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 13,
     color: colors.textFaint,
-    marginTop: 4,
+    marginTop: 10,
   },
-  scrollCue: { alignItems: 'center', marginTop: 14 },
+  privacy: { marginTop: 14 },
+  scrollCue: { alignItems: 'center', marginTop: 18 },
   // Gleiche Typo-Sprache wie die Datumszeile oben (Uppercase + Letterspacing),
   // nur gedämpft – lädt zum Scrollen ein, ohne mit dem Blob zu konkurrieren.
   scrollCueText: {

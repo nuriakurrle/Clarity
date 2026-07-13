@@ -2,7 +2,7 @@
  * EntryScreen – Eingabemaske für einen neuen Tagebucheintrag.
  *
  * Titel, Fließtext und Stimmungsauswahl. Datum/Uhrzeit kommen direkt von
- * der Geräteuhr. „Fertig" schickt den Eintrag an den Sentiment-Agenten
+ * der Geräteuhr. „Speichern" schickt den Eintrag an den Sentiment-Agenten
  * (`POST /analyze`), der ihn sofort in SQLite speichert und die emotionale
  * Auswertung als Hintergrund-Task nachzieht – davon leben später Einblicke
  * & Wochenrückblick. Ein Entwurf wird fortlaufend in AsyncStorage gesichert
@@ -134,7 +134,7 @@ export default function EntryScreen({ onDone }: Props) {
 
   // Tastatur offen? Dann Editor-Leiste direkt über der Tastatur zeigen
   // (Android/Edge-to-Edge hebt nichts automatisch an, deshalb selbst schieben)
-  // und die Fußzeile (Stimmung + Fertig) so lange ausblenden.
+  // und die Fußzeile (Stimmung + Speichern) so lange ausblenden.
   const keyboardHeight = useKeyboardHeight();
   const keyboardOpen = keyboardHeight > 0;
   // iOS schiebt schon die KeyboardAvoidingView – nur Android braucht Padding
@@ -378,7 +378,7 @@ export default function EntryScreen({ onDone }: Props) {
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.doneText}>Fertig</Text>
+                <Text style={styles.doneText}>Speichern</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -398,14 +398,15 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  // Neutral wie die Datumszeilen in Verlauf/Kalender (früher: Orange/warm)
-  date: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
+  // Neutral wie die Datumszeilen in Verlauf/Kalender (früher: Orange/warm);
+  // etwas größer als dort, aber bewusst kleiner als „Wie fühlst du dich?".
+  date: { fontSize: 15, color: colors.textMuted, fontWeight: '600' },
   title: {
     fontFamily: serif,
     fontSize: 28,
     fontWeight: '700',
     color: colors.text,
-    marginTop: 6,
+    marginTop: 24,
     marginBottom: 16,
     padding: 0,
     ...noOutline,
@@ -442,7 +443,7 @@ const styles = StyleSheet.create({
     bottom: 74,
     pointerEvents: 'box-none',
   },
-  // Nur noch „Fertig" – die Stimmung wird oben in der MoodBar gewählt
+  // Nur noch „Speichern" – die Stimmung wird oben in der MoodBar gewählt
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
