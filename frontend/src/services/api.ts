@@ -252,9 +252,15 @@ export function fetchLatestPatterns(): Promise<PatternResult> {
 }
 
 /** Meistgenutzte Schlagwörter der letzten `days` Tage inkl. Stimmungswert
- *  (Sentiment-Agent, GET /keywords). Deterministisch – kommt sofort, kein LLM. */
-export function fetchKeywords(days = 30, limit = 10): Promise<KeywordsResult> {
-  return request<KeywordsResult>('sentiment', `/keywords?days=${days}&limit=${limit}`);
+ *  (Sentiment-Agent, GET /keywords). Deterministisch – kommt sofort, kein LLM.
+ *  `since` (Date) gewinnt vor `days`: zählt dann ab diesem Zeitpunkt statt
+ *  rollierend – für Kalender-Fenster wie „aktuelle Woche ab Montag". */
+export function fetchKeywords(days = 30, limit = 10, since?: Date): Promise<KeywordsResult> {
+  // created_at in der DB ist UTC "YYYY-MM-DD HH:MM:SS" – gleiches Format senden.
+  const sinceParam = since
+    ? `&since=${encodeURIComponent(since.toISOString().slice(0, 19).replace('T', ' '))}`
+    : '';
+  return request<KeywordsResult>('sentiment', `/keywords?days=${days}&limit=${limit}${sinceParam}`);
 }
 
 /** Stößt eine Musteranalyse über die letzten `days` Tage an (Pattern-Agent).

@@ -65,12 +65,26 @@ function calcStreak(localDates: string[]): number {
   return streak;
 }
 
-/** Kennzahlen (Einträge, Wörter, Serie) aus den Einträgen im Zeitraum. */
+/**
+ * Beginn des KALENDER-Zeitraums (lokale Zeit): Woche = Montag 00:00,
+ * Monat = 1. des Monats, Jahr = 1. Januar. Chart, Kennzahlen und Key Themes
+ * nutzen dasselbe Fenster – nichts rechnet mehr rollierend.
+ */
+function rangeStart(range: Range, now = new Date()): Date {
+  if (range === 'Woche') {
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    monday.setDate(monday.getDate() - ((now.getDay() + 6) % 7));
+    return monday;
+  }
+  if (range === 'Monat') return new Date(now.getFullYear(), now.getMonth(), 1);
+  return new Date(now.getFullYear(), 0, 1);
+}
+
+/** Kennzahlen (Einträge, Wörter, Serie) aus den Einträgen ab `cutoff` (ms). */
 function computeStats(
   entries: { content: string; created_at: string }[],
-  days: number,
+  cutoff: number,
 ): { entryCount: number; wordCount: number; streak: number } {
-  const cutoff = Date.now() - days * DAY_MS;
   const inRange = entries.filter((e) => {
     const ms = parseUtc(e.created_at);
     return !Number.isNaN(ms) && ms >= cutoff;
@@ -201,12 +215,15 @@ export default function InsightScreen() {
     setError(false);
 
     const days = RANGE_DAYS[range];
-    Promise.all([fetchMoodProfile(days), fetchKeywords(days, 10), fetchEntries()])
+    // Kalender-Fenster (seit Montag / Monatsersten / 1. Januar) für Keywords
+    // und Kennzahlen – das Profil holt großzügig `days` und die Chart filtert.
+    const start = rangeStart(range);
+    Promise.all([fetchMoodProfile(days), fetchKeywords(days, 10, start), fetchEntries()])
       .then(([prof, kw, entriesRes]) => {
         if (cancelled) return;
         setProfile(prof);
         setKeywords(kw.keywords);
-        setStats(computeStats(entriesRes.entries ?? [], days));
+        setStats(computeStats(entriesRes.entries ?? [], start.getTime()));
       })
       .catch(() => {
         if (!cancelled) setError(true);

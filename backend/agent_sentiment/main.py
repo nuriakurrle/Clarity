@@ -353,35 +353,45 @@ STOPWORDS = {
 }
 
 
-def _entries_with_valence(days: int) -> list:
+def _entries_with_valence(days: int, since: Optional[str] = None) -> list:
     """Einträge der letzten `days` Tage mit der Valenz ihrer neuesten Analyse.
 
     Basis für die Key-Themes: pro Eintrag Text + Stimmungswert, damit jedes
     Schlagwort nach der durchschnittlichen Stimmung eingefärbt werden kann.
+    `since` (UTC, "YYYY-MM-DD HH:MM:SS") gewinnt vor `days` – damit kann die
+    App Kalender-Fenster abfragen (z. B. seit Montag 00:00) statt rollierend.
     """
+    if since:
+        where_sql = "WHERE e.created_at >= ?"
+        param = since
+    else:
+        where_sql = "WHERE e.created_at >= datetime('now', ? || ' days')"
+        param = f"-{days}"
     conn = get_db_connection()
     rows = conn.execute(
-        """SELECT e.content, s.valence
+        f"""SELECT e.content, s.valence
            FROM entries e
            LEFT JOIN sentiment_analysis s ON s.id = (
                SELECT MAX(id) FROM sentiment_analysis WHERE entry_id = e.id
            )
-           WHERE e.created_at >= datetime('now', ? || ' days')""",
-        (f'-{days}',),
+           {where_sql}""",
+        (param,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 @app.get("/keywords")
-async def keywords(days: int = 30, limit: int = 10, min_len: int = 4):
+async def keywords(days: int = 30, limit: int = 10, min_len: int = 4, since: Optional[str] = None):
     """Häufigste, inhaltstragende Schlagwörter der letzten `days` Tage.
 
     Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (ohne
     Stoppwörter), und färbt jedes Wort nach der durchschnittlichen Stimmung
     dieser Einträge ein. Rein deterministisch – kein LLM, also sofort da.
+    Optional `since` (UTC, "YYYY-MM-DD HH:MM:SS") für Kalender-Fenster
+    (z. B. aktuelle Woche ab Montag) statt rollierender `days`.
     """
-    rows = _entries_with_valence(days)
+    rows = _entries_with_valence(days, since)
 
     doc_freq = defaultdict(int)     # in wie vielen Einträgen kommt das Wort vor
     valence_sum = defaultdict(float)
