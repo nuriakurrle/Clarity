@@ -31,8 +31,11 @@ export function MoodLineChart({ data, height = 200, hideDotsAtIndex }: Props) {
 
   // Die Aufrufer dünnen selbst aus (leere Strings an Positionen ohne Marke).
   const labels = data.map((d) => d.label);
-  const values = data.map(
-    (d) => Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100),
+  // Anzeige-Werte leicht vom Rand wegpolstern (4..96): Ein Tag mit maximal
+  // negativer/positiver Stimmung läge sonst exakt AUF der Rahmenlinie und
+  // wäre unsichtbar – so bleibt der Punkt immer im Zeichenbereich.
+  const values = data.map((d) =>
+    Math.min(96, Math.max(4, Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100))),
   );
 
   return (

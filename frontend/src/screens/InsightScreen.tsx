@@ -149,25 +149,20 @@ function buildMoodPoints(profile: MoodProfile, range: Range): ChartData {
   }
 
   if (range === 'Woche') {
-    // Die LETZTEN 7 Tage (rollierend, heute ganz rechts) statt der
-    // Kalenderwoche: montags wäre die Kalenderwoche sonst fast leer, und die
-    // Kennzahlen darüber rechnen ohnehin rollierend. Tage ohne Eintrag werden
-    // interpoliert und zeigen keinen Punkt.
-    const start = new Date(now);
-    start.setDate(now.getDate() - 6);
-    const startMs = new Date(`${localIso(start)}T12:00:00`).getTime();
+    // Die AKTUELLE Kalenderwoche: die X-Achse spannt immer Mo–So. Tage ohne
+    // Eintrag werden interpoliert und zeigen keinen Punkt.
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const mondayMs = new Date(`${localIso(monday)}T12:00:00`).getTime();
     const byDay = new Map<number, number>();
     for (const d of days) {
       const idx = Math.round(
-        (new Date(`${d.date}T12:00:00`).getTime() - startMs) / DAY_MS,
+        (new Date(`${d.date}T12:00:00`).getTime() - mondayMs) / DAY_MS,
       );
       if (idx >= 0 && idx <= 6) byDay.set(idx, d.average_valence);
     }
     if (byDay.size === 0) return { points: [], hiddenDots: [] };
-    return fillSeries(byDay, 0, 6, (i) => {
-      const day = new Date(startMs + i * DAY_MS);
-      return WEEKDAY_LABELS[(day.getDay() + 6) % 7];
-    });
+    return fillSeries(byDay, 0, 6, (i) => WEEKDAY_LABELS[i]);
   }
 
   // Monat: der AKTUELLE Kalendermonat, die X-Achse spannt IMMER den ganzen
