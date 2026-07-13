@@ -44,6 +44,10 @@ export function MoodLineChart({ data, height = 200, hideDotsAtIndex }: Props) {
           height={height}
           bezier
           fromZero
+          // Y-Skala fest auf 0–100 pinnen (wie der Karten-Untertitel verspricht).
+          // Ohne das kollabiert die Skala, wenn alle Tage denselben Wert haben –
+          // eine flache Linie bei 0 lag dann unsichtbar auf der Grundlinie.
+          fromNumber={100}
           segments={4}
           // Bewusst NICHT hidePointsAtIndex: das würde auch die X-Achsen-Labels
           // an diesen Indizes unterdrücken. Stattdessen unsichtbare Dots (r=0).
