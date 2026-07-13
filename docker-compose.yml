@@ -34,9 +34,13 @@ services:
       - clarity-network
     restart: "no"
 
+  # Alle Agenten nutzen dasselbe Image (backend/Dockerfile); es wird nur
+  # einmal gebaut. Welcher Agent läuft, bestimmt `command:`.
   agent_sentiment:
     build:
-      context: ./backend/agent_sentiment
+      context: ./backend
+    image: clarity-backend
+    command: python agent_sentiment/main.py
     container_name: clarity_sentiment
     ports:
       - "8001:8000"
@@ -50,7 +54,6 @@ services:
       - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -58,7 +61,9 @@ services:
 
   agent_pattern:
     build:
-      context: ./backend/agent_pattern
+      context: ./backend
+    image: clarity-backend
+    command: python agent_pattern/main.py
     container_name: clarity_pattern
     ports:
       - "8002:8000"
@@ -72,7 +77,6 @@ services:
       - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -80,7 +84,9 @@ services:
 
   agent_prompt:
     build:
-      context: ./backend/agent_prompt
+      context: ./backend
+    image: clarity-backend
+    command: python agent_prompt/main.py
     container_name: clarity_prompt
     ports:
       - "8003:8000"
@@ -94,7 +100,6 @@ services:
       - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -102,7 +107,9 @@ services:
 
   agent_digest:
     build:
-      context: ./backend/agent_digest
+      context: ./backend
+    image: clarity-backend
+    command: python agent_digest/main.py
     container_name: clarity_digest
     ports:
       - "8004:8000"
@@ -119,7 +126,6 @@ services:
       - PATTERN_AGENT_URL=http://agent_pattern:8000
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -129,7 +135,9 @@ services:
   # beim ersten Start heruntergeladen und im Volume gecacht.
   agent_transcribe:
     build:
-      context: ./backend/agent_transcribe
+      context: ./backend
+    image: clarity-backend
+    command: python agent_transcribe/main.py
     container_name: clarity_transcribe
     ports:
       - "8005:8000"
