@@ -34,6 +34,23 @@ services:
       - clarity-network
     restart: "no"
 
+  # Die Agenten laufen als Nicht-root-Benutzer. Ältere Dateien unter ./data
+  # wurden aber noch als root erzeugt – dieser Service macht sie einmalig
+  # beim Start beschreibbar und beendet sich dann (gleiches Muster wie
+  # ollama-init).
+  data-init:
+    build:
+      context: ./backend
+    image: clarity-backend
+    container_name: clarity_data_init
+    user: root
+    command: chmod -R a+rwX /data
+    volumes:
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: "no"
+
   # Alle Agenten nutzen dasselbe Image (backend/Dockerfile); es wird nur
   # einmal gebaut. Welcher Agent läuft, bestimmt `command:`.
   agent_sentiment:
@@ -48,6 +65,8 @@ services:
       ollama:
         condition: service_healthy
       ollama-init:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -72,6 +91,8 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
@@ -95,6 +116,8 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
@@ -117,6 +140,8 @@ services:
       ollama:
         condition: service_healthy
       ollama-init:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -145,7 +170,7 @@ services:
       - WHISPER_MODEL=small
       - PYTHONUNBUFFERED=1
     volumes:
-      - whisper_models:/root/.cache/huggingface
+      - whisper_models:/whisper-cache
     networks:
       - clarity-network
     restart: unless-stopped

@@ -9,4 +9,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
+# Nicht als root laufen (Security Best Practice): eigener Benutzer ohne
+# Sonderrechte. /whisper-cache gehört ihm, damit der Transcribe-Agent die
+# Whisper-Modelle dorthin laden kann (HF_HOME zeigt huggingface darauf).
+RUN useradd --create-home appuser \
+    && mkdir -p /whisper-cache \
+    && chown appuser:appuser /whisper-cache
+ENV HF_HOME=/whisper-cache
+USER appuser
 EXPOSE 8000
