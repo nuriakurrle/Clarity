@@ -381,13 +381,41 @@ def _entries_with_valence(days: int, since: Optional[str] = None) -> list:
     return [dict(r) for r in rows]
 
 
+# Zeichen, die einen Satz beenden – ein großgeschriebenes Wort direkt danach
+# ist einfach nur Satzanfang und sagt nichts über die Wortart aus.
+_SENTENCE_END = ".!?…:\n\r"
+
+
+def _nouns_in(content: str, min_len: int) -> set:
+    """Substantiv-Heuristik ohne NLP: Wörter, die mitten im Satz großgeschrieben
+    stehen, sind im Deutschen fast immer Substantive oder Namen ("Mama",
+    "Prüfung"). Adjektive/Füllwörter ("wundervoller", "supi") fallen raus.
+    Liefert die kleingeschriebenen Wortformen (für Zählung/Deduplizierung).
+    """
+    nouns = set()
+    for m in re.finditer(r"[A-Za-zÄÖÜäöüß]+", content):
+        w = m.group()
+        if len(w) < min_len or not w[0].isupper():
+            continue
+        # Kontext davor: Leerraum/Anführungszeichen/Klammern überspringen,
+        # dann entscheiden, ob das Wort am Satzanfang steht.
+        before = content[: m.start()].rstrip(" \t\"'„“‚’«»()[]–—-")
+        if not before or before[-1] in _SENTENCE_END:
+            continue
+        lw = w.lower()
+        if lw not in STOPWORDS:
+            nouns.add(lw)
+    return nouns
+
+
 @app.get("/keywords")
 async def keywords(days: int = 30, limit: int = 10, min_len: int = 4, since: Optional[str] = None):
-    """Häufigste, inhaltstragende Schlagwörter der letzten `days` Tage.
+    """Häufigste Substantive/Namen der letzten `days` Tage als "Key Themes".
 
-    Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (ohne
-    Stoppwörter), und färbt jedes Wort nach der durchschnittlichen Stimmung
-    dieser Einträge ein. Rein deterministisch – kein LLM, also sofort da.
+    Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (nur
+    Substantive per Großschreibungs-Heuristik, ohne Stoppwörter), und färbt
+    jedes Wort nach der durchschnittlichen Stimmung dieser Einträge ein.
+    Rein deterministisch – kein LLM, also sofort da.
     Optional `since` (UTC, "YYYY-MM-DD HH:MM:SS") für Kalender-Fenster
     (z. B. aktuelle Woche ab Montag) statt rollierender `days`.
     """
@@ -396,28 +424,28 @@ async def keywords(days: int = 30, limit: int = 10, min_len: int = 4, since: Opt
     doc_freq = defaultdict(int)     # in wie vielen Einträgen kommt das Wort vor
     valence_sum = defaultdict(float)
     valence_n = defaultdict(int)
+    display = {}                    # kleingeschrieben -> Original-Schreibweise
 
     for row in rows:
-        content = (row.get("content") or "").lower()
+        content = row.get("content") or ""
         valence = row.get("valence")
-        # Pro Eintrag jedes Wort nur einmal (Dokument-Frequenz), Stoppwörter raus.
-        words = {
-            w for w in re.split(r"[^a-zäöüß]+", content)
-            if len(w) >= min_len and w not in STOPWORDS
-        }
-        for w in words:
+        # Pro Eintrag jedes Wort nur einmal (Dokument-Frequenz).
+        for w in _nouns_in(content, min_len):
             doc_freq[w] += 1
+            display.setdefault(w, w.capitalize())
             if valence is not None:
                 valence_sum[w] += valence
                 valence_n[w] += 1
 
-    # Nur Wörter, die in mindestens zwei Einträgen vorkommen -> echte "Themen".
-    candidates = {w: c for w, c in doc_freq.items() if c >= 2} or dict(doc_freq)
+    # Nur Wörter aus mindestens zwei Einträgen sind echte "Themen" – bewusst
+    # KEIN Fallback auf Einzeltreffer mehr: lieber eine leere Liste (die App
+    # zeigt dann "Noch keine Themen erkannt") als zufällige Einzelwörter.
+    candidates = {w: c for w, c in doc_freq.items() if c >= 2}
     ranked = sorted(candidates.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:limit]
 
     keywords_out = [
         {
-            "word": word,
+            "word": display[word],
             "count": count,
             "valence": round(valence_sum[word] / valence_n[word], 3) if valence_n[word] else 0.0,
         }
