@@ -59,6 +59,25 @@ Lokale Verarbeitung von Daten mit optionalen AI-Modulen für Pattern- und Sentim
 - [Node.js](https://nodejs.org/) inkl. npm (für das Frontend)
 - Expo Go auf dem Handy (optional, zum Testen auf dem Gerät)
 
+### Schnellstart zum Testen/Korrigieren
+
+Drei Befehle, danach ist die App mit Demo-Daten voll benutzbar:
+
+```bash
+docker compose up --build -d              # 1. Backend (erster Start lädt Modelle, ~5–10 min)
+docker compose --profile demo up seed     # 2. Demo-Daten einspielen (~7 Monate Einträge)
+cd frontend && npm install && npm start   # 3. App starten (w = Web, oder QR-Code mit Expo Go)
+```
+
+Die Demo-Daten füllen Stimmungsverlauf, Key Themes, Kennzahlen und den
+Wochenrückblick sofort – ohne sie startet die App mit einem leeren Tagebuch,
+und die Insights entstehen erst nach eigenen Einträgen. Das Einspielen
+passiert bewusst **nur** über diesen expliziten Befehl (Privacy First: echte
+Nutzer bekommen nie automatisch fremde Einträge).
+
+Beim Testen auf dem Handy müssen Handy und Rechner im **selben WLAN** sein.
+Wenn die App „Backend nicht erreichbar" meldet: läuft Docker (`docker compose ps`)?
+
 ### 1. Backend starten (Docker)
 
 ```bash

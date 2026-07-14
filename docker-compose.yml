@@ -51,6 +51,26 @@ services:
       - clarity-network
     restart: "no"
 
+  # Demo-Daten für Tester/Korrektur (~7 Monate Beispiel-Einträge inkl.
+  # Analysen, damit Insights/Home sofort gefüllt sind). Läuft NUR auf
+  # ausdrücklichen Wunsch – niemals automatisch, es schreibt ins Tagebuch:
+  #   docker compose --profile demo up seed
+  seed:
+    build:
+      context: ./backend
+    image: clarity-backend
+    container_name: clarity_seed
+    profiles: ["demo"]
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["python /scripts/seed_data.py --db /data/clarity.db && chmod -R a+rwX /data"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: "no"
+
   # Alle Agenten nutzen dasselbe Image (backend/Dockerfile); es wird nur
   # einmal gebaut. Welcher Agent läuft, bestimmt `command:`.
   agent_sentiment:

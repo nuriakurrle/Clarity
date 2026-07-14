@@ -10,6 +10,7 @@ dem Host läuft:
 
     python scripts/seed_data.py                # an bestehende Daten anfügen
     python scripts/seed_data.py --reset        # vorher Einträge/Analysen leeren
+    docker compose --profile demo up seed      # dasselbe ohne Host-Python
 
 Die Schlagwörter (Arbeit, Schlaf, Mama, müde, dankbar, überfordert,
 Spaziergang, Freunde, Sport, Familie, Stress ...) wiederholen sich bewusst,
@@ -19,7 +20,7 @@ import argparse
 import json
 import random
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Standard-Pfad: <repo>/data/clarity.db (relativ zu diesem Script).
@@ -120,7 +121,9 @@ def insert_entry(conn: sqlite3.Connection, when: datetime, template: tuple) -> N
     text, valence, emotion, intensity, secondary = template
     valence += random.uniform(-0.08, 0.08)
     valence = max(-1.0, min(1.0, round(valence, 3)))
-    created = when.strftime("%Y-%m-%d %H:%M:%S")
+    # created_at ist in der App-DB immer UTC (CURRENT_TIMESTAMP der Container);
+    # `when` ist lokale Zeit → konvertieren. `date` bleibt der lokale Kalendertag.
+    created = when.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     date_only = when.strftime("%Y-%m-%d")
 
     cur = conn.cursor()
