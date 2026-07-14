@@ -22,7 +22,7 @@ try:
     )
     from tools.prompt_library import get_prompt_by_category, library_prompts, PROMPT_LIBRARY
     from tools.context_analyzer import ContextAnalyzer
-    from tools.context_fetcher import fetch_context
+    from tools.context_fetcher import gather_context
 except ImportError:
     # Fallback for local development
     from backend.agent_prompt.schemas import (
@@ -36,7 +36,7 @@ except ImportError:
     )
     from backend.agent_prompt.tools.prompt_library import get_prompt_by_category, library_prompts, PROMPT_LIBRARY
     from backend.agent_prompt.tools.context_analyzer import ContextAnalyzer
-    from backend.agent_prompt.tools.context_fetcher import fetch_context
+    from backend.agent_prompt.tools.context_fetcher import gather_context
 
 # Persistenz ist optional (lokale Entwicklung ohne shared/-Mount)
 try:
@@ -262,28 +262,30 @@ def _filter_blocked(prompts: list[str], blocked: Optional[list[str]]) -> list[st
 
 @router.post("/generate-prompts", response_model=PromptsGenerateResponse)
 async def generate_prompts(request: PromptsGenerateRequest):
-    """Generate 4 context-aware reflection prompts.
+    """Generate 4 context-aware reflection prompts (Orchestrator).
 
-    Holt fehlenden Kontext (Sentiment/Pattern/Digest) von den anderen Agents,
-    generiert dann via Ollama. Sind Agents oder Ollama nicht erreichbar
-    (Offline-Modus), laeuft alles ohne diesen Schritt weiter bzw. kommen die
-    Fragen aus der lokalen Bibliothek. Legt KEINE Eintraege an (nur save_prompts).
+    Ruft die anderen Agents live mit persist=false auf (bzw. liest deren
+    zuletzt gespeicherte Ergebnisse, solange ein Agent die Flag noch nicht
+    anbietet) und generiert dann via Ollama. Faellt ein Agent oder Ollama aus
+    (Offline-Modus), wird die Komponente uebersprungen bzw. kommen die Fragen
+    aus der lokalen Bibliothek. Legt KEINE Eintraege an (nur save_prompts).
     """
     content = _prompts_content(request)
     is_starter = len(content) < 15
     source = "ollama"
     prompts: list[str] = []
 
-    # 0) Fehlenden Kontext von den anderen Agents holen (best-effort);
-    #    mitgeschickte Werte aus dem Request haben Vorrang.
-    fetched_sentiment, fetched_pattern, fetched_digest = await fetch_context(
-        need_sentiment=request.sentiment is None,
-        need_pattern=request.pattern is None,
-        need_digest=request.digest is None,
+    # 0) Kontext orchestrieren (Override -> live persist=false -> gespeichert)
+    sentiment, pattern, digest, context_modes = await gather_context(
+        text=request.text,
+        entries=request.entries,
+        use_sentiment=request.use_sentiment,
+        use_pattern=request.use_pattern,
+        use_digest=request.use_digest,
+        sentiment_override=request.sentiment,
+        pattern_override=request.pattern,
+        digest_override=request.digest,
     )
-    sentiment = request.sentiment or fetched_sentiment
-    pattern = request.pattern or fetched_pattern
-    digest = request.digest or fetched_digest
 
     # 1) Versuch: Ollama-Generierung mit Kontext
     if OLLAMA_HOST and MODEL:
@@ -329,14 +331,15 @@ async def generate_prompts(request: PromptsGenerateRequest):
     # 4) speichern (entry_id optional, KEIN save_entry)
     try:
         save_prompts(request.entry_id, prompts)
-        logger.info(f"💾 Saved {len(prompts)} prompts (source={source})")
     except Exception as e:
         logger.error(f"⚠️ save_prompts non-fatal: {e}")
 
+    logger.info(f"💾 {len(prompts)} prompts | source={source} | context={context_modes}")
     return PromptsGenerateResponse(
         prompts=prompts,
         mode="starter" if is_starter else "reflection",
         source=source,
+        context_used=list(context_modes.keys()),
     )
 
 

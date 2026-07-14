@@ -89,6 +89,12 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      agent_sentiment:
+        condition: service_started
+      agent_pattern:
+        condition: service_started
+      agent_digest:
+        condition: service_started
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
