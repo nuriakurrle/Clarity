@@ -10,6 +10,7 @@
  */
 import { request } from './api';
 import { offlinePrompts } from './promptLibrary';
+import type { MoodLevel } from '../theme/colors';
 
 export type PromptMode = 'starter' | 'reflection';
 export type PromptSource = 'ollama' | 'mixed' | 'library';
@@ -22,19 +23,22 @@ export type ReflectionPrompts = {
   contextUsed: string[];
 };
 
-/** Mood-Auswahl aus dem Editor → Sentiment-Beschreibung für den Agent. */
-export function moodToSentiment(mood: string | null): string | undefined {
+/** Mood-Auswahl aus dem Editor (5-Stufen-Skala aus theme/colors) →
+ *  Sentiment-Beschreibung für den Agent. Die Begriffe matchen die
+ *  Polaritäts-Heuristiken in promptLibrary (Frontend) und
+ *  prompt_library.py (Backend). */
+export function moodToSentiment(mood: MoodLevel | null | undefined): string | undefined {
   switch (mood) {
-    case '🥰':
+    case 'great':
       return 'sehr positiv';
-    case '😊':
+    case 'good':
       return 'positiv';
-    case '😕':
-      return 'gemischt';
-    case '😢':
-      return 'traurig';
-    case '😔':
+    case 'neutral':
+      return 'neutral';
+    case 'low':
       return 'niedergeschlagen';
+    case 'bad':
+      return 'sehr schlecht';
     default:
       return undefined;
   }
