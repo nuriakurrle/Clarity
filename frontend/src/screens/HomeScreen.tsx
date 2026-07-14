@@ -29,16 +29,21 @@ import {
 import { colors } from '../theme/colors';
 import { moodColor, MoodLevel, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
+import { lastWeekRange, parseCreatedAt } from '../utils/week';
 
-const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FALLBACK_QUESTION = 'Was hat dir letzte Woche am meisten Energie gegeben?';
 
-/** Nur Muster dieser Woche auf Home zeigen (created_at ist UTC "YYYY-MM-DD HH:MM:SS"). */
+/**
+ * Nur Daten der Vorwoche (Mo–So) auf Home zeigen – dasselbe Fenster wie der
+ * Digest-Agent und der Mood-Blob, damit alle drei über dieselben Tage reden.
+ * Ohne Zeitstempel wird nicht ausgeschlossen (Muster tragen nicht immer einen).
+ */
 function isWithinLastWeek(createdAt?: string): boolean {
-  if (!createdAt) return true; // ohne Zeitstempel nicht ausschliessen
-  const ts = Date.parse(`${createdAt.replace(' ', 'T')}Z`);
+  if (!createdAt) return true;
+  const ts = parseCreatedAt(createdAt);
   if (Number.isNaN(ts)) return true;
-  return Date.now() - ts < WEEK_MS;
+  const { start, end } = lastWeekRange();
+  return ts >= start && ts < end;
 }
 
 type Props = { onWrite?: () => void };
@@ -75,7 +80,7 @@ export default function HomeScreen({ onWrite }: Props) {
     fetchKeywords(7, 10)
       .then((res) => setKeywords(res.keywords))
       .catch(() => {});
-    // Häufigste Stimmung der letzten 7 Tage bestimmen (gleiche Logik wie im
+    // Häufigste Stimmung der Vorwoche bestimmen (gleiche Logik wie im
     // MoodMirrorBlob: pro Eintrag, valence → 5-Stufen-Level).
     fetchEntries()
       .then((res) => {
