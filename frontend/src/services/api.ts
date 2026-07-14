@@ -127,6 +127,8 @@ export type Digest = {
   challenges: string[];
   growth: string[];
   affirmation: string;
+  /** Reflexionsfrage aus den Wochendaten; fehlt bei Digests vor der Migration. */
+  question?: string;
 };
 
 /** Ergebnis des Pattern-Agents (wiederkehrende Muster über mehrere Einträge). */
@@ -244,6 +246,21 @@ export function fetchEntries(): Promise<{ entries: EntryRecord[] }> {
 /** Letzter gespeicherter Wochenrückblick (Digest-Agent). */
 export function fetchLatestDigest(): Promise<Digest> {
   return request<Digest>('digest', '/digest/latest');
+}
+
+/**
+ * Wochenrückblick neu erzeugen (Digest-Agent, POST /reflect). Läuft über ein
+ * lokales LLM und braucht deshalb ein paar Sekunden. `weeks_back: 1` = die
+ * abgeschlossene Vorwoche. 404 = keine Einträge in dem Zeitraum.
+ */
+export function createReflection(weeksBack = 1): Promise<Digest> {
+  return request<Digest>(
+    'digest',
+    '/reflect',
+    { method: 'POST', body: JSON.stringify({ weeks_back: weeksBack }) },
+    // Das Modell schreibt mehrere Absätze – der 15-s-Standard reicht dafür nicht.
+    120000,
+  );
 }
 
 /** Zuletzt erkannte wiederkehrende Muster & Trigger (Pattern-Agent). */

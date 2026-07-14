@@ -97,6 +97,45 @@ def extract_json(text: str) -> dict:
 
 
 # --- Kontext aus den Wochendaten --------------------------------------------
+# Fünfstufige Skala – identisch zu valenceToMoodLevel() im Frontend
+# (theme/moodColors.ts). Beide müssen dieselben Grenzen benutzen, sonst
+# widerspricht die Wochen-Ansprache im Blob der Zusammenfassung des Digests.
+MOOD_LABELS = {
+    "great": "sehr gut",
+    "good": "gut",
+    "neutral": "ausgeglichen",
+    "low": "gedrückt",
+    "bad": "schwer",
+}
+
+
+def valence_to_level(valence: float) -> str:
+    if valence >= 0.6:
+        return "great"
+    if valence >= 0.2:
+        return "good"
+    if valence >= -0.2:
+        return "neutral"
+    if valence >= -0.6:
+        return "low"
+    return "bad"
+
+
+def dominant_mood(sentiments: list) -> str | None:
+    """Häufigste Stimmungs-Kategorie der Woche – pro Eintrag gezählt, genau wie
+    der Mood-Blob im Frontend. Das ist die Kategorie, die der Nutzer oben auf
+    Home sieht; der Digest-Text darf ihr nicht widersprechen."""
+    counts: dict = {}
+    for s in sentiments:
+        if s.get("valence") is None:
+            continue
+        level = valence_to_level(s["valence"])
+        counts[level] = counts.get(level, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
+
+
 def summarize_mood(sentiments: list) -> str:
     if not sentiments:
         return "Keine Stimmungsdaten vorhanden."
@@ -138,7 +177,18 @@ def summarize_patterns(patterns: list) -> str:
     return f"Top-Themen: {themes}. Stimmungstrend: {trend}."
 
 
-def build_reflection_prompt(entries_text: str, mood: str, pattern: str) -> str:
+def build_reflection_prompt(
+    entries_text: str, mood: str, pattern: str, level: str | None = None
+) -> str:
+    verdict = (
+        f"""
+GESAMTBILD (gemessen, nicht verhandelbar):
+Die Woche war insgesamt {MOOD_LABELS[level]}. Die meisten Einträge fallen in
+diese Kategorie. Genau dieser Satz steht auch oben auf dem Startbildschirm.
+"""
+        if level
+        else ""
+    )
     return f"""Du bist ein einfühlsamer Reflexions-Begleiter für eine Journaling-App.
 Erstelle eine Reflexion der vergangenen Woche auf Deutsch – basierend auf den
 Einträgen, der Stimmung und den erkannten Mustern dieser Woche.
@@ -151,9 +201,17 @@ STIMMUNG:
 
 MUSTER:
 {pattern}
+{verdict}
+"summary" MUSS zum GESAMTBILD passen und darf ihm nicht widersprechen. War die
+Woche gut, schreib sie nicht als Herausforderung. Einzelne schwere Momente
+gehören in "challenges", nicht in die Zusammenfassung.
+
+"question" ist eine offene Frage zum Weitertragen, die sich konkret auf DIESE
+Woche bezieht – greife ein Thema, eine Person oder einen Moment aus den
+Einträgen auf. Keine allgemeine Floskel.
 
 Antworte AUSSCHLIESSLICH mit JSON in genau diesem Format:
-{{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche"}}"""
+{{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche", "question": "eine offene Frage zu dieser Woche"}}"""
 
 
 def week_window(weeks_back: int = 1) -> tuple[datetime, datetime]:
@@ -178,6 +236,7 @@ def persist_digest(digest_data: dict, week_start_dt: datetime) -> None:
         digest_data.get("challenges", []),
         digest_data.get("growth", []),
         digest_data.get("affirmation", ""),
+        digest_data.get("question", ""),
     )
     logger.info(f"Digest gespeichert (week_start={week_start})")
 
@@ -207,10 +266,13 @@ async def reflect(input: ReflectInput = ReflectInput()):
     )
 
     entries_text = "\n---\n".join(e["content"] for e in entries)
+    level = dominant_mood(sentiments)
+    logger.info(f"Dominante Stimmung der Woche: {level or '–'}")
     prompt = build_reflection_prompt(
         entries_text,
         summarize_mood(sentiments),
         summarize_patterns(patterns),
+        level,
     )
 
     raw = await call_ollama(prompt, temperature=0.4)

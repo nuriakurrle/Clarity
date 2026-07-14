@@ -149,6 +149,16 @@ def init_db():
         )
     """)
 
+    # Migration: Der Digest liefert inzwischen auch eine Reflexionsfrage aus
+    # den Wochendaten. Spalte nur ergänzen, wenn sie fehlt -> bricht keine
+    # bestehende DB; Altdaten haben question = NULL (Frontend zeigt dann den
+    # neutralen Standardsatz).
+    existing_digest_cols = {
+        row[1] for row in cursor.execute("PRAGMA table_info(weekly_digest)").fetchall()
+    }
+    if "question" not in existing_digest_cols:
+        cursor.execute("ALTER TABLE weekly_digest ADD COLUMN question TEXT")
+
     _repair_mood_profile(cursor)
 
     conn.commit()
@@ -555,16 +565,17 @@ def save_prompts(entry_id: int, prompts: list) -> None:
     conn.close()
 
 def save_digest(week_start: str, summary: str, highlights: list,
-                challenges: list, growth: list, affirmation: str) -> None:
+                challenges: list, growth: list, affirmation: str,
+                question: str = "") -> None:
     """Save weekly digest"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO weekly_digest
-           (week_start, summary, highlights, challenges, growth, affirmation)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (week_start, summary, highlights, challenges, growth, affirmation, question)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (week_start, summary, json.dumps(highlights), json.dumps(challenges),
-         json.dumps(growth), affirmation)
+         json.dumps(growth), affirmation, question)
     )
     conn.commit()
     conn.close()

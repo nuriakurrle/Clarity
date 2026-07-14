@@ -18,31 +18,31 @@ export const DEFAULT_PROMPT = 'Was bewegt dich heute?';
 
 const PROMPTS: Record<MoodLevel, string[]> = {
   bad: [
-    'Diese Woche steckte viel Schweres in dir. Magst du aufschreiben, was los war?',
+    'In der letzten Woche steckte viel Schweres. Magst du aufschreiben, was los war?',
     'Es war wohl eine schwere Woche. Was davon möchtest du festhalten?',
   ],
   low: [
-    'Diese Woche wirkte etwas gedrückt. Was ist dir durch den Kopf gegangen?',
+    'Die letzte Woche wirkte etwas gedrückt. Was ist dir durch den Kopf gegangen?',
     'Manche Tage waren wohl schwerer als andere. Magst du festhalten, was dich beschäftigt hat?',
   ],
   neutral: [
     'Eine ausgeglichene Woche liegt hinter dir. Was hat sie geprägt?',
-    'Diese Woche war ruhig unterwegs. Was möchtest du festhalten?',
+    'Die letzte Woche war ruhig unterwegs. Was möchtest du festhalten?',
   ],
   good: [
-    'Diese Woche hatte viele gute Momente. Was hat dir besonders gutgetan?',
-    'Es lief ziemlich rund diese Woche. Was möchtest du dir merken?',
+    'Die letzte Woche hatte viele gute Momente. Was hat dir besonders gutgetan?',
+    'Es lief ziemlich rund letzte Woche. Was möchtest du dir merken?',
   ],
   great: [
-    'Diese Woche steckte viel Freude in dir. Was hat dich zum Strahlen gebracht?',
+    'In der letzten Woche steckte viel Freude. Was hat dich zum Strahlen gebracht?',
     'Was für eine gute Woche! Was hat sie so besonders gemacht?',
   ],
 };
 
 /** Wenn die zwei stärksten Stimmungen fast gleichauf liegen. */
 const MIXED_PROMPTS = [
-  'Diese Woche war gemischt. Was ist dir besonders in Erinnerung geblieben?',
-  'Hoch und runter diese Woche – was ist dir am meisten in Erinnerung geblieben?',
+  'Die letzte Woche war gemischt. Was ist dir besonders in Erinnerung geblieben?',
+  'Hoch und runter letzte Woche – was ist dir am meisten in Erinnerung geblieben?',
 ];
 
 /** Anteil-Schwelle: liegen Top-2 näher beieinander, gilt die Woche als gemischt. */

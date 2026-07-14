@@ -3,9 +3,12 @@
  *
  * Füllt die drei Abschnitte mit Inhalten aus dem Backend:
  *   - Tonverlauf                ← Digest-Agent (Zusammenfassung der Woche)
- *   - Wiederkehrende Themen     ← Digest-Agent (Highlights + Challenges)
- *   - Reflexionsfrage           ← lokaler Impuls,
+ *   - Wiederkehrende Themen     ← Pattern-Agent
+ *   - Reflexionsfrage           ← Digest-Agent (aus den Einträgen der Woche),
  *     mit der Digest-Affirmation als sanftem Abschluss.
+ *
+ * Deckt der gespeicherte Digest die Vorwoche noch nicht ab, stösst der Screen
+ * einmal pro Sitzung /reflect an – sonst triggert den Agenten niemand.
  *
  * Bausteine aus `../components/home` (Bullet, QuoteBlock) und der
  * Themen-Chip aus `../components/insight` (Tag).
@@ -14,6 +17,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, HighlightText, PrivacyNote, SectionLabel } from '../components';
+import { LoadingPulse } from '../components/LoadingPulse';
 import { Bullet, QuoteBlock, MoodMirrorBlob } from '../components/home';
 import { Tag } from '../components/insight';
 import {
@@ -21,6 +25,8 @@ import {
   EntryRecord,
   KeywordItem,
   PatternResult,
+  createReflection,
+  detectPatterns,
   fetchEntries,
   fetchKeywords,
   fetchLatestDigest,
@@ -29,7 +35,7 @@ import {
 import { colors } from '../theme/colors';
 import { moodColor, MoodLevel, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
-import { lastWeekRange, parseCreatedAt } from '../utils/week';
+import { lastWeekRange, lastWeekStartKey, parseCreatedAt } from '../utils/week';
 
 const FALLBACK_QUESTION = 'Was hat dir letzte Woche am meisten Energie gegeben?';
 
@@ -44,6 +50,18 @@ function isWithinLastWeek(createdAt?: string): boolean {
   if (Number.isNaN(ts)) return true;
   const { start, end } = lastWeekRange();
   return ts >= start && ts < end;
+}
+
+/**
+ * Ist die Musteranalyse noch aktuell? `created_at` ist der Analyse-Zeitpunkt;
+ * eine Analyse gilt als frisch, solange sie nach Beginn der Vorwoche lief –
+ * dann deckt sie deren Einträge ab. Ältere Analysen werden neu angestossen.
+ */
+function isPatternFresh(createdAt?: string): boolean {
+  if (!createdAt) return false;
+  const ts = parseCreatedAt(createdAt);
+  if (Number.isNaN(ts)) return false;
+  return ts >= lastWeekRange().start;
 }
 
 type Props = { onWrite?: () => void };
@@ -62,20 +80,69 @@ export default function HomeScreen({ onWrite }: Props) {
   // Typewriter-Trigger: wird true, sobald der Block in den sichtbaren
   // Bereich scrollt (und bleibt true – einmal pro Sitzung).
   const [typeSummary, setTypeSummary] = useState(false);
+  // Laeuft gerade ein /reflect? (LLM, dauert ein paar Sekunden)
+  const [reflecting, setReflecting] = useState(false);
   const bodyY = useRef(0);
   const summaryY = useRef(0);
+  // Guard: hoechstens ein /reflect pro Sitzung, sonst feuert jeder Re-Mount
+  // des Screens das Modell erneut an.
+  const reflectStarted = useRef(false);
+  const patternStarted = useRef(false);
+
+  /** Wochenrueckblick der Vorwoche erzeugen lassen (nur einmal pro Sitzung). */
+  const refreshDigest = () => {
+    if (reflectStarted.current) return;
+    reflectStarted.current = true;
+    setReflecting(true);
+    createReflection(1)
+      .then(setDigest)
+      .catch(() => {
+        // 404 = keine Eintraege in der Vorwoche. Kein Fehlerfall: der leere
+        // Zustand unten sagt das bereits. Verbindungsfehler meldet der
+        // fetchLatestDigest-Pfad.
+      })
+      .finally(() => setReflecting(false));
+  };
+
+  /** Musteranalyse ueber die letzte Woche anstossen (nur einmal pro Sitzung). */
+  const refreshPatterns = () => {
+    if (patternStarted.current) return;
+    patternStarted.current = true;
+    detectPatterns(7)
+      // Die Antwort von /detect-patterns traegt kein created_at (das vergibt
+      // erst die DB) – ohne das gaelte das frische Muster als veraltet und die
+      // Karte bliebe leer. Deshalb den gespeicherten Stand nachladen.
+      .then(() => fetchLatestPatterns())
+      .then(setPattern)
+      .catch(() => {
+        /* keine/zu wenige Eintraege – der leere Zustand sagt das bereits */
+      });
+  };
 
   useEffect(() => {
+    // Deckt der gespeicherte Digest schon die Vorwoche ab? Wenn nicht (neue
+    // Woche oder noch nie erzeugt), einmal /reflect anstossen – niemand sonst
+    // triggert den Agenten. Verpasste Wochen holen sich so von selbst auf.
     fetchLatestDigest()
-      .then(setDigest)
+      .then((d) => {
+        setDigest(d);
+        if (d.week_start !== lastWeekStartKey()) refreshDigest();
+      })
       .catch((e) => {
         // Nur bei echtem Verbindungsfehler "offline". Ein HTTP-Fehler wie 404
         // heisst nur: es gibt noch keinen Wochenrueckblick (kein Backend-Problem).
-        if (!String(e?.message ?? '').includes('HTTP')) setOffline(true);
+        if (String(e?.message ?? '').includes('HTTP')) refreshDigest();
+        else setOffline(true);
       });
+    // Wie beim Digest: den Pattern-Agenten triggert sonst nur das Schreiben
+    // eines Eintrags. Ist die letzte Analyse aelter als die Vorwoche, hier
+    // einmal nachziehen – sonst bleibt die Themen-Karte dauerhaft leer.
     fetchLatestPatterns()
-      .then(setPattern)
-      .catch(() => {});
+      .then((p) => {
+        setPattern(p);
+        if (!isPatternFresh(p.created_at)) refreshPatterns();
+      })
+      .catch(() => refreshPatterns());
     // Häufigste Wörter der Woche – dienen als „wichtige" Begriffe zum Hervorheben.
     fetchKeywords(7, 10)
       .then((res) => setKeywords(res.keywords))
@@ -106,9 +173,12 @@ export default function HomeScreen({ onWrite }: Props) {
   };
 
   // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren".
-  // Nur anzeigen, wenn die Analyse aus der letzten Woche stammt.
+  // Achtung: created_at ist der Zeitpunkt der ANALYSE, nicht der Zeitraum der
+  // Daten. Er darf deshalb nicht gegen das Vorwochen-Fenster geprueft werden –
+  // eine heute gelaufene Analyse faellt da nie hinein. Stattdessen: zeigen,
+  // solange die Analyse frisch ist (siehe isPatternFresh).
   const activePattern =
-    pattern && pattern.status !== 'no_data' && isWithinLastWeek(pattern.created_at)
+    pattern && pattern.status !== 'no_data' && isPatternFresh(pattern.created_at)
       ? pattern
       : null;
   const observations = activePattern?.observations ?? [];
@@ -177,6 +247,8 @@ export default function HomeScreen({ onWrite }: Props) {
                 </View>
               ))}
             </View>
+          ) : reflecting ? (
+            <LoadingPulse label="Dein Wochenrückblick entsteht …" />
           ) : (
             <Text style={styles.hint}>
               {offline
@@ -215,8 +287,12 @@ export default function HomeScreen({ onWrite }: Props) {
           <View style={styles.section}>
             <SectionLabel text="Reflexionsfrage" />
             <View style={styles.sectionContent}>
-              {/* Bewusst ohne Typewriter (typingActive) – die Frage steht sofort da. */}
-              <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} />
+              {/* Frage des Digest-Agents aus den Einträgen der Woche; der
+                  neutrale Satz greift nur, wenn noch kein Digest da ist. */}
+              <QuoteBlock
+                text={digest?.question?.trim() || FALLBACK_QUESTION}
+                accentColor={weekAccent}
+              />
             </View>
           </View>
 

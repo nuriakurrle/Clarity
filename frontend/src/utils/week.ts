@@ -26,6 +26,14 @@ export function parseCreatedAt(createdAt?: string): number {
   return Date.parse(`${createdAt.replace(' ', 'T')}Z`);
 }
 
+/** Montag der Vorwoche als ISO-Datum (YYYY-MM-DD) – wie `week_start` im Backend. */
+export function lastWeekStartKey(now = new Date()): string {
+  const d = new Date(lastWeekRange(1, now).start);
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 /** Liegt der Eintrag in der Vorwoche? Ohne/mit kaputtem Zeitstempel: nein. */
 export function isInLastWeek(createdAt?: string, range = lastWeekRange()): boolean {
   const ts = parseCreatedAt(createdAt);
