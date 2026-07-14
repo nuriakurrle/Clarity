@@ -14,23 +14,36 @@ try:
     from schemas import (
         PromptRequest,
         PromptResponse,
+        PromptsGenerateRequest,
+        PromptsGenerateResponse,
         StarterPromptRequest,
         WeeklyReflectionRequest,
         HealthResponse,
     )
-    from tools.prompt_library import get_prompt_by_category, PROMPT_LIBRARY
+    from tools.prompt_library import get_prompt_by_category, library_prompts, PROMPT_LIBRARY
     from tools.context_analyzer import ContextAnalyzer
+    from tools.context_fetcher import fetch_context
 except ImportError:
     # Fallback for local development
     from backend.agent_prompt.schemas import (
         PromptRequest,
         PromptResponse,
+        PromptsGenerateRequest,
+        PromptsGenerateResponse,
         StarterPromptRequest,
         WeeklyReflectionRequest,
         HealthResponse,
     )
-    from backend.agent_prompt.tools.prompt_library import get_prompt_by_category, PROMPT_LIBRARY
+    from backend.agent_prompt.tools.prompt_library import get_prompt_by_category, library_prompts, PROMPT_LIBRARY
     from backend.agent_prompt.tools.context_analyzer import ContextAnalyzer
+    from backend.agent_prompt.tools.context_fetcher import fetch_context
+
+# Persistenz ist optional (lokale Entwicklung ohne shared/-Mount)
+try:
+    from database import save_prompts
+except ImportError:
+    def save_prompts(entry_id, prompts):
+        logging.getLogger(__name__).warning("⚠️  save_prompts unavailable (local dev mode)")
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +187,157 @@ async def generate_weekly_reflection(request: WeeklyReflectionRequest):
         "context_reason": "Weekly deep reflection - mixed categories",
         "language": request.language,
     }
+
+
+def _prompts_content(request: PromptsGenerateRequest) -> str:
+    """Aktueller Entwurf oder – falls leer – bisherige Eintraege."""
+    if request.text.strip():
+        return request.text.strip()
+    return "\n---\n".join(request.entries).strip()
+
+
+def _prompts_context_lines(
+    sentiment: Optional[dict], pattern: Optional[dict], digest: Optional[dict]
+) -> str:
+    """Baut den Kontextblock aus Sentiment / Pattern / Digest."""
+    lines = []
+    if sentiment:
+        emo = ", ".join(sentiment.get("emotions", []) or [])
+        lines.append(
+            f"Stimmung: {sentiment.get('sentiment', '?')}"
+            + (f" (Emotionen: {emo})" if emo else "")
+        )
+    if pattern:
+        themes = ", ".join(pattern.get("top_themes", []) or [])
+        if themes:
+            lines.append(f"Wiederkehrende Themen: {themes}")
+        if pattern.get("mood_trend"):
+            lines.append(f"Stimmungstrend: {pattern['mood_trend']}")
+    if digest and digest.get("summary"):
+        lines.append(f"Wochenrückblick: {digest['summary'][:200]}")
+    return "\n".join(lines)
+
+
+def _build_prompts_prompt(
+    content: str,
+    sentiment: Optional[dict],
+    pattern: Optional[dict],
+    digest: Optional[dict],
+    blocked_topics: Optional[list[str]],
+    is_starter: bool,
+) -> str:
+    ctx = _prompts_context_lines(sentiment, pattern, digest)
+    ctx_block = f"\nKontext:\n{ctx}\n" if ctx else ""
+    avoid = ""
+    if blocked_topics:
+        avoid = (
+            f"\nVERMEIDE diese Themen komplett: "
+            f"{', '.join(blocked_topics)}."
+        )
+
+    if is_starter:
+        return (
+            "Du bist eine sanfte Journaling-Begleiterin. Die Seite ist fast leer."
+            f"{ctx_block}{avoid}\n"
+            "Stelle 4 kurze, warme Einstiegsfragen auf Deutsch. Wenn Kontext "
+            "(Stimmung, Themen, Wochenrückblick) gegeben ist, beziehe dich darauf.\n\n"
+            'Antworte NUR mit JSON:\n{"prompts": ["F1?","F2?","F3?","F4?"]}'
+        )
+    return (
+        "Du bist eine sanfte Journaling-Begleiterin. "
+        f"Grundlage (Deutsch):\n\"{content}\"\n{ctx_block}{avoid}\n"
+        "Stelle 4 kurze, tiefe Reflexionsfragen auf Deutsch. Beziehe dich, "
+        "wo sinnvoll, auf Stimmung, wiederkehrende Themen und den "
+        "Wochenrückblick.\n\n"
+        'Antworte NUR mit JSON:\n{"prompts": ["F1?","F2?","F3?","F4?"]}'
+    )
+
+
+def _filter_blocked(prompts: list[str], blocked: Optional[list[str]]) -> list[str]:
+    if not blocked:
+        return prompts
+    low = [b.lower() for b in blocked if b.strip()]
+    return [p for p in prompts if not any(b in p.lower() for b in low)]
+
+
+@router.post("/generate-prompts", response_model=PromptsGenerateResponse)
+async def generate_prompts(request: PromptsGenerateRequest):
+    """Generate 4 context-aware reflection prompts.
+
+    Holt fehlenden Kontext (Sentiment/Pattern/Digest) von den anderen Agents,
+    generiert dann via Ollama. Sind Agents oder Ollama nicht erreichbar
+    (Offline-Modus), laeuft alles ohne diesen Schritt weiter bzw. kommen die
+    Fragen aus der lokalen Bibliothek. Legt KEINE Eintraege an (nur save_prompts).
+    """
+    content = _prompts_content(request)
+    is_starter = len(content) < 15
+    source = "ollama"
+    prompts: list[str] = []
+
+    # 0) Fehlenden Kontext von den anderen Agents holen (best-effort);
+    #    mitgeschickte Werte aus dem Request haben Vorrang.
+    fetched_sentiment, fetched_pattern, fetched_digest = await fetch_context(
+        need_sentiment=request.sentiment is None,
+        need_pattern=request.pattern is None,
+        need_digest=request.digest is None,
+    )
+    sentiment = request.sentiment or fetched_sentiment
+    pattern = request.pattern or fetched_pattern
+    digest = request.digest or fetched_digest
+
+    # 1) Versuch: Ollama-Generierung mit Kontext
+    if OLLAMA_HOST and MODEL:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                response = await client.post(
+                    f"{OLLAMA_HOST}/api/generate",
+                    json={
+                        "model": MODEL,
+                        "prompt": _build_prompts_prompt(
+                            content, sentiment, pattern, digest,
+                            request.blocked_topics, is_starter,
+                        ),
+                        "stream": False,
+                        "options": {"temperature": 0.6},
+                    },
+                )
+                raw = response.json().get("response", "")
+                match = re.search(r'\{.*?"prompts".*?\}', raw, re.DOTALL)
+                if match:
+                    prompts = json.loads(match.group()).get("prompts", [])
+        except Exception as e:
+            logger.error(f"❌ Ollama offline, nutze Bibliothek: {e}")
+
+    prompts = [p for p in prompts if isinstance(p, str) and p.strip()]
+
+    # 2) Offline-Modus / Auffuellung aus der Bibliothek
+    if len(prompts) < 4:
+        source = "library" if not prompts else "mixed"
+        for p in library_prompts(
+            sentiment=sentiment,
+            pattern=pattern,
+            digest=digest,
+            is_starter=is_starter,
+            n=6,
+        ):
+            if p not in prompts:
+                prompts.append(p)
+
+    # 3) blockierte Themen filtern, auf 4 begrenzen
+    prompts = _filter_blocked(prompts, request.blocked_topics)[:4]
+
+    # 4) speichern (entry_id optional, KEIN save_entry)
+    try:
+        save_prompts(request.entry_id, prompts)
+        logger.info(f"💾 Saved {len(prompts)} prompts (source={source})")
+    except Exception as e:
+        logger.error(f"⚠️ save_prompts non-fatal: {e}")
+
+    return PromptsGenerateResponse(
+        prompts=prompts,
+        mode="starter" if is_starter else "reflection",
+        source=source,
+    )
 
 
 async def _generate_with_ollama(text: str) -> str:

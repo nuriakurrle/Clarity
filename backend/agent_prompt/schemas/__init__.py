@@ -56,6 +56,29 @@ class WeeklyReflectionRequest(BaseModel):
     language: str = "de"
 
 
+class PromptsGenerateRequest(BaseModel):
+    """Request for /generate-prompts (4 context-aware questions).
+
+    sentiment/pattern/digest sind optionale Overrides. Fehlen sie, holt der
+    Agent den Kontext selbst von den anderen Agents (best-effort; offline
+    laeuft die Generierung ohne Kontext weiter).
+    """
+    text: str = ""                                # aktueller Entwurf (optional)
+    entries: list[str] = []                       # bisherige Eintraege (optional)
+    sentiment: Optional[dict] = None              # {sentiment, confidence, emotions}
+    pattern: Optional[dict] = None                # {top_themes, mood_trend, triggers}
+    digest: Optional[dict] = None                 # {summary, highlights, challenges, growth}
+    blocked_topics: Optional[list[str]] = None
+    entry_id: Optional[int] = None
+
+
+class PromptsGenerateResponse(BaseModel):
+    """Response for /generate-prompts."""
+    prompts: list[str]
+    mode: str    # "starter" | "reflection"
+    source: str  # "ollama" | "library" | "mixed"
+
+
 class HealthResponse(BaseModel):
     """Health check response."""
     status: str

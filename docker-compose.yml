@@ -92,6 +92,9 @@ services:
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
+      - SENTIMENT_AGENT_URL=http://agent_sentiment:8000
+      - PATTERN_AGENT_URL=http://agent_pattern:8000
+      - DIGEST_AGENT_URL=http://agent_digest:8000
       - PYTHONUNBUFFERED=1
     volumes:
       - ./backend/shared:/app/shared:ro
