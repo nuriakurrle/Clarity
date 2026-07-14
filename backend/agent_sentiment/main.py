@@ -1,4 +1,5 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
+import asyncio
 import os, json, re, logging, sys, uuid
 from collections import defaultdict
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
@@ -33,6 +34,36 @@ MODEL = os.getenv("MODEL", "llama3.2:1b")
 async def startup():
     init_db()
     logger.info("✅ Database initialized")
+    # Liegengebliebene Analysen nachholen (z. B. Ollama war beim Speichern down)
+    asyncio.create_task(backfill_missing_analyses())
+
+
+async def backfill_missing_analyses():
+    """Analysiert periodisch alle Einträge nach, die noch kein Sentiment haben.
+
+    /analyze speichert save-first und analysiert im Hintergrund – schlägt das
+    fehl (Ollama down, kaputtes JSON), bliebe der Eintrag sonst für immer ohne
+    Stimmung (grau im Kalender, fehlt im Verlauf).
+    """
+    await asyncio.sleep(60)  # Ollama Zeit zum Hochfahren geben
+    while True:
+        try:
+            conn = get_db_connection()
+            rows = conn.execute(
+                """SELECT e.id, e.content FROM entries e
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM sentiment_analysis s WHERE s.entry_id = e.id
+                   )
+                   ORDER BY e.id"""
+            ).fetchall()
+            conn.close()
+            if rows:
+                logger.info(f"🔁 Backfill: {len(rows)} Einträge ohne Analyse")
+            for row in rows:
+                await run_analysis(row["id"], TextInput(text=row["content"], entry_id=row["id"]))
+        except Exception as e:
+            logger.error(f"❌ Backfill failed: {e}")
+        await asyncio.sleep(1800)  # alle 30 Minuten erneut prüfen
 
 class TextInput(BaseModel):
     text: str

@@ -1,18 +1,32 @@
 """SQLite Database for Clarity - Shared by all agents"""
+import os
 import sqlite3
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
+from zoneinfo import ZoneInfo
 
 DB_PATH = Path("/data/clarity.db")
+
+# created_at liegt in UTC (Container-Zeit); für die Tageszuordnung im
+# Stimmungsverlauf zählt aber der Kalendertag des Nutzers.
+APP_TZ = ZoneInfo(os.getenv("APP_TZ", "Europe/Berlin"))
 
 def get_db_connection():
     """Create or get SQLite connection"""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    # timeout: bei parallelem Schreibzugriff (mehrere Agent-Prozesse) warten
+    # statt sofort "database is locked" zu werfen. Bewusst kein WAL-Modus:
+    # dessen Shared-Memory ist über den Docker-Bind-Mount nicht verlässlich.
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
+
+def _entry_local_date(created_at: str) -> str:
+    """UTC-Zeitstempel ("YYYY-MM-DD HH:MM:SS") → lokales Datum (ISO) des Eintrags."""
+    dt = datetime.fromisoformat(created_at).replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TZ).date().isoformat()
 
 def init_db():
     """Initialize database schema"""
@@ -135,8 +149,32 @@ def init_db():
         )
     """)
 
+    _repair_mood_profile(cursor)
+
     conn.commit()
     conn.close()
+
+def _repair_mood_profile(cursor) -> None:
+    """Bestandsdaten geraderücken (idempotent, läuft bei jedem Start):
+    Duplikate aus Nachanalysen entfernen (neueste gewinnt), verwaiste Zeilen
+    löschen und das Datum auf den Kalendertag des Eintrags setzen."""
+    cursor.execute("""
+        DELETE FROM mood_profile
+        WHERE id NOT IN (SELECT MAX(id) FROM mood_profile GROUP BY entry_id)
+    """)
+    cursor.execute("""
+        DELETE FROM mood_profile
+        WHERE entry_id IS NULL OR entry_id NOT IN (SELECT id FROM entries)
+    """)
+    rows = cursor.execute("""
+        SELECT m.id, e.created_at FROM mood_profile m
+        JOIN entries e ON e.id = m.entry_id
+    """).fetchall()
+    for r in rows:
+        cursor.execute(
+            "UPDATE mood_profile SET date = ? WHERE id = ? AND date != ?",
+            (_entry_local_date(r["created_at"]), r["id"], _entry_local_date(r["created_at"])),
+        )
 
 def save_entry(content: str) -> int:
     """Save new journal entry"""
@@ -244,17 +282,22 @@ def save_mood_profile(entry_id: int, sentiment_data: Dict[str, Any]) -> None:
     """Save mood profile entry for longitudinal tracking"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    today = datetime.now().date()
+
+    # Datum des EINTRAGS, nicht der Analyse – sonst wandert die Stimmung beim
+    # Editieren/Nachanalysieren auf den falschen Tag.
+    row = cursor.execute("SELECT created_at FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    entry_date = _entry_local_date(row["created_at"]) if row else datetime.now(APP_TZ).date().isoformat()
     mood_shift = "stable"  # Default, can be computed from trend analysis
-    
+
+    # Upsert: genau eine Zeile pro Eintrag, sonst zählt der Tagesdurchschnitt doppelt.
+    cursor.execute("DELETE FROM mood_profile WHERE entry_id = ?", (entry_id,))
     cursor.execute(
         """INSERT INTO mood_profile
            (entry_id, date, daily_valence, daily_intensity, dominant_emotions, mood_shift)
            VALUES (?, ?, ?, ?, ?, ?)""",
         (
             entry_id,
-            today,
+            entry_date,
             sentiment_data.get("valence", 0),
             sentiment_data.get("intensity", 50),
             json.dumps([
