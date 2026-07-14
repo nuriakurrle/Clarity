@@ -29,14 +29,12 @@ export const colors = {
   warmHighlight: '#E3D3B5',
   navBg: '#FBE4D2',
 
-  // Stimmungs-Palette (von gut nach schlecht) – satte Blob-Farben.
-  // Bewusst dunkler/gesättigter (Tailwind-600 statt -500), damit nach
-  // Blur + Fade im Mood-Blob genug Farbkraft übrig bleibt.
-  moodGreat: '#16A34A', // Grün
-  moodGood: '#0891B2', // Türkis
-  moodNeutral: '#CA8A04', // Gelb
-  moodLow: '#2563EB', // Blau
-  moodBad: '#DC2626', // Rot
+  // Stimmungs-Palette (von gut nach schlecht) – lebendige Blob-Farben
+  moodGreat: '#22C55E', // Grün
+  moodGood: '#06B6D4', // Türkis
+  moodNeutral: '#EAB308', // Gelb
+  moodLow: '#3B82F6', // Blau
+  moodBad: '#EF4444', // Rot
 } as const;
 
 export type MoodLevel = 'great' | 'good' | 'neutral' | 'low' | 'bad';
