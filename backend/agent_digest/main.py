@@ -1,4 +1,4 @@
-"""Clarity Reflection / Digest Agent - Port 8004 - WITH DATABASE
+"""Clarity Reflection / Digest Agent - Port 8004 
 
 Erstellt wöchentliche Einblicke aus Stimmung, Mustern und Entwicklungen.
 
@@ -46,7 +46,7 @@ MODEL = os.getenv("MODEL", "llama3.2:1b")
 @app.on_event("startup")
 async def startup():
     init_db()
-    logger.info("✅ Database initialized")
+    logger.info("Database initialized")
 
 
 # --- Modelle ----------------------------------------------------------------
@@ -57,13 +57,15 @@ class DigestInput(BaseModel):
 
 
 class ReflectInput(BaseModel):
-    """Reflexion aus der DB über die letzten `days` Tage."""
-    days: int = 7
+    """Reflexion über eine abgeschlossene Kalenderwoche.
+
+    `weeks_back=1` = letzte Woche (Mo–So), 2 = die Woche davor usw.
+    """
+    weeks_back: int = 1
 
 
 # --- Ollama-Helfer (lokales LLM) --------------------------------------------
 async def call_ollama(prompt: str, temperature: float = 0.4) -> str:
-    """Schickt einen Prompt an die lokale Ollama-Instanz und gibt den Text zurück."""
     async with httpx.AsyncClient(timeout=90) as client:
         try:
             response = await client.post(
@@ -96,11 +98,6 @@ def extract_json(text: str) -> dict:
 
 # --- Kontext aus den Wochendaten --------------------------------------------
 def summarize_mood(sentiments: list) -> str:
-    """Verdichtet die Stimmungsanalysen der Woche zu einem kurzen Text.
-
-    Nutzt das erweiterte Sentiment-Schema (valence, intensity, primary_emotion,
-    secondary_emotions).
-    """
     if not sentiments:
         return "Keine Stimmungsdaten vorhanden."
     counts: dict = {}
@@ -143,10 +140,10 @@ def summarize_patterns(patterns: list) -> str:
 
 def build_reflection_prompt(entries_text: str, mood: str, pattern: str) -> str:
     return f"""Du bist ein einfühlsamer Reflexions-Begleiter für eine Journaling-App.
-Erstelle eine wöchentliche Reflexion auf Deutsch – basierend auf den Einträgen,
-der Stimmung und den erkannten Mustern der Woche.
+Erstelle eine Reflexion der vergangenen Woche auf Deutsch – basierend auf den
+Einträgen, der Stimmung und den erkannten Mustern dieser Woche.
 
-EINTRÄGE DER WOCHE:
+EINTRÄGE DER VERGANGENEN WOCHE (Mo–So):
 {entries_text}
 
 STIMMUNG:
@@ -159,9 +156,21 @@ Antworte AUSSCHLIESSLICH mit JSON in genau diesem Format:
 {{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche"}}"""
 
 
-def persist_digest(digest_data: dict) -> None:
-    """Speichert eine Reflexion in der weekly_digest-Tabelle (Wochenstart = Montag)."""
-    week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).strftime("%Y-%m-%d")
+def week_window(weeks_back: int = 1) -> tuple[datetime, datetime]:
+    """Montag 00:00 bis (exklusiv) Montag 00:00 der abgeschlossenen Woche.
+
+    weeks_back=1 liefert die *letzte* Woche (Mo–So), nicht die laufende.
+    """
+    today = datetime.now()
+    this_monday = (today - timedelta(days=today.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start = this_monday - timedelta(weeks=weeks_back)
+    return start, start + timedelta(days=7)
+
+
+def persist_digest(digest_data: dict, week_start_dt: datetime) -> None:
+    week_start = week_start_dt.strftime("%Y-%m-%d")
     save_digest(
         week_start,
         digest_data.get("summary", ""),
@@ -170,10 +179,10 @@ def persist_digest(digest_data: dict) -> None:
         digest_data.get("growth", []),
         digest_data.get("affirmation", ""),
     )
-    logger.info(f"💾 Digest gespeichert (week_start={week_start})")
+    logger.info(f"Digest gespeichert (week_start={week_start})")
 
 
-# --- Endpunkte --------------------------------------------------------------
+# Endpunkte 
 @app.get("/health")
 async def health():
     return {"status": "healthy", "agent": "reflection", "model": MODEL}
@@ -181,17 +190,20 @@ async def health():
 
 @app.post("/reflect")
 async def reflect(input: ReflectInput = ReflectInput()):
-    """Wöchentliche Reflexion aus den in der DB gespeicherten Wochendaten."""
-    since = (datetime.now() - timedelta(days=input.days)).strftime("%Y-%m-%d %H:%M:%S")
-    entries = get_entries_since(since)
+    """Reflexion über die abgeschlossene Vorwoche (Mo–So) aus der DB."""
+    start_dt, end_dt = week_window(input.weeks_back)
+    since = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    until = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    entries = get_entries_since(since, until)
     if not entries:
         raise HTTPException(status_code=404, detail="Keine Einträge in diesem Zeitraum")
 
-    sentiments = get_sentiments_since(since)
-    patterns = get_patterns_since(since)
+    sentiments = get_sentiments_since(since, until)
+    patterns = get_patterns_since(since, until)
     logger.info(
-        f"🪞 Reflexion über {len(entries)} Einträge, "
-        f"{len(sentiments)} Stimmungen, {len(patterns)} Muster..."
+        f"Reflexion für {start_dt:%Y-%m-%d} bis {end_dt - timedelta(days=1):%Y-%m-%d}: "
+        f"{len(entries)} Einträge, {len(sentiments)} Stimmungen, {len(patterns)} Muster..."
     )
 
     entries_text = "\n---\n".join(e["content"] for e in entries)
@@ -203,26 +215,25 @@ async def reflect(input: ReflectInput = ReflectInput()):
 
     raw = await call_ollama(prompt, temperature=0.4)
     digest_data = extract_json(raw)
-    persist_digest(digest_data)
+    persist_digest(digest_data, start_dt)
     return digest_data
 
 
 @app.post("/create-digest")
 async def create_digest(input: DigestInput):
-    """Direkter Aufruf mit fertigen Einträgen (z. B. zum Testen ohne DB-Inhalt)."""
-    logger.info(f"📖 Creating digest for {len(input.entries)} entries...")
+    logger.info(f"Creating digest for {len(input.entries)} entries...")
     entries_text = "\n---\n".join(input.entries)
     prompt = build_reflection_prompt(entries_text, "Keine Stimmungsdaten.", "Keine Muster.")
 
     raw = await call_ollama(prompt, temperature=0.4)
     digest_data = extract_json(raw)
-    persist_digest(digest_data)
+    persist_digest(digest_data, week_window(1)[0])
     return digest_data
 
 
 @app.get("/digest/latest")
 async def latest_digest():
-    """Letzte gespeicherte Reflexion aus SQLite (kein LLM-Aufruf)."""
+
     digest = get_latest_digest()
     if digest is None:
         raise HTTPException(status_code=404, detail="Noch keine Reflexion vorhanden")

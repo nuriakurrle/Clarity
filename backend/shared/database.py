@@ -571,26 +571,31 @@ def save_digest(week_start: str, summary: str, highlights: list,
 
 # --- Read helpers (used by the reflection/digest agent) ---------------------
 
-def get_entries_since(since: str) -> list:
-    """Return journal entries created on/after `since` (oldest first)."""
+def get_entries_since(since: str, until: str | None = None) -> list:
+    """Return journal entries created on/after `since` (oldest first).
+
+    `until` is an exclusive upper bound, used to select a closed week window.
+    """
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT id, content, created_at FROM entries
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
-def get_sentiments_since(since: str) -> list:
+def get_sentiments_since(since: str, until: str | None = None) -> list:
     """Return sentiment analyses on/after `since`, with secondary_emotions decoded."""
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT sentiment, valence, intensity, tone, primary_emotion,
                   secondary_emotions, confidence, created_at
            FROM sentiment_analysis
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     result = []
@@ -602,13 +607,14 @@ def get_sentiments_since(since: str) -> list:
         result.append(item)
     return result
 
-def get_patterns_since(since: str) -> list:
+def get_patterns_since(since: str, until: str | None = None) -> list:
     """Return pattern detections on/after `since`, with JSON fields decoded."""
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT top_themes, mood_trend, triggers, created_at FROM pattern_detection
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     result = []
