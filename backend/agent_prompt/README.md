@@ -12,103 +12,24 @@ The Prompt Agent generates contextually relevant reflection questions based on:
 
 ## Features
 
-✨ **Smart Prompt Selection**
-- Safety-first: Distress signals get immediate support
-- Context-aware: Different prompts for morning vs evening
-- Pattern-aware: Recognizes recurring themes
-- Personalized: Avoids recently asked questions
-- Milestone celebration: 30/60/90-day achievements
+✨ **Orchestrator**: holt Sentiment/Pattern/Digest-Kontext von den anderen
+Agents und generiert daraus 4 Reflexionsfragen via Ollama.
 
-🌍 **Multilingual**
-- German (de) & English (en) built-in
-- Expandable to more languages
+📚 **Offline-Bibliothek**: ohne Ollama (oder bei zu wenigen Fragen) kommt
+eine kontextpassende Auswahl aus der kuratierten Bibliothek – Starter-Fragen,
+Sentiment-Subkategorien (positiv/negativ/neutral/ängstlich/traurig, DE/EN)
+und Templates für Pattern-Themen und Wochenrückblick.
 
-🎯 **Prompt Categories**
-- **Starter**: Blank page prevention
-- **Sentiment-based**: Driven by emotional signals
-- **Pattern-based**: Response to recurring themes
-- **Temporal**: Context-specific (morning, evening, weekly)
-- **Safety**: For distress signals
-- **Streak-break**: Gentle re-engagement
-- **Milestone**: Celebration prompts
+> Historische Einzel-Endpoints (`/generate-prompt`, `/generate-starter`,
+> `/generate-weekly-reflection`) und ihre Bibliotheks-Kategorien
+> (temporal/safety/streak_break/milestone) wurden entfernt – kein Client
+> hat sie aufgerufen. Bei Bedarf: Git-Historie.
 
 ## API Endpoints
 
 ### Health Check
 ```
 GET /health
-```
-
-### Generate Single Prompt
-```
-POST /generate-prompt
-
-Request:
-{
-  "journal_text": "Today was interesting...",
-  "sentiment_data": {
-    "label": "positive",
-    "score": 0.8,
-    "distress_score": 0.1
-  },
-  "detected_patterns": ["work", "sleep"],
-  "context": "post_entry",
-  "streak_days": 15,
-  "user_history_ids": [],
-  "entry_id": 123
-}
-
-Response:
-{
-  "question": "Was war das Beste an heute?",
-  "prompt_type": "sentiment_based",
-  "category": "sentiment_based",
-  "subcategory": "positive",
-  "context_reason": "Sentiment analysis: positive",
-  "suggested_timing": "post_entry",
-  "entry_id": 123,
-  "language": "de"
-}
-```
-
-### Generate Starter Prompt (Blank Page Prevention)
-```
-POST /generate-starter
-
-Request:
-{
-  "context": "editor_open",
-  "language": "de"
-}
-
-Response:
-{
-  "question": "Was beschäftigt dich gerade am meisten?",
-  "prompt_type": "starter",
-  ...
-}
-```
-
-### Generate Weekly Reflection (3-5 deep questions)
-```
-POST /generate-weekly-reflection
-
-Request:
-{
-  "week_number": 28,
-  "language": "de"
-}
-
-Response:
-{
-  "questions": [
-    "Welche Themen durchziehen diese Woche?",
-    "Was war das Beste an dieser Woche?",
-    ...
-  ],
-  "prompt_type": "weekly_reflection",
-  ...
-}
 ```
 
 ### Generate Prompts (Orchestrator, 4 kontextbezogene Fragen)
@@ -175,8 +96,7 @@ backend/agent_prompt/
 │                             #  Agenten gemeinsam unter backend/)
 │
 ├── tools/
-│   ├── prompt_library.py     # All prompt templates (DE/EN) + Offline-Auswahl
-│   ├── context_analyzer.py   # Decision logic for prompt selection
+│   ├── prompt_library.py     # Prompt templates (DE/EN) + Offline-Auswahl
 │   └── context_fetcher.py    # Orchestriert Sentiment/Pattern/Digest (persist=false)
 │
 ├── schemas/
@@ -210,19 +130,12 @@ Server runs at `http://localhost:8003`
 
 ## Testing
 
-### Run All Tests
 ```bash
 pytest tests/agent_prompt/ -v
 ```
 
-### Test Coverage
-- **test_prompt_library.py**: Library completeness, multilingual support
-- **test_context_analyzer.py**: Selection logic, sentiment mapping
-
-```bash
-pytest tests/agent_prompt/test_prompt_library.py -v
-pytest tests/agent_prompt/test_context_analyzer.py -v
-```
+- **test_prompt_library.py**: Bibliotheks-Struktur, DE/EN, Offline-Auswahl
+  (`library_prompts` inkl. Sentiment-Mapping und Pattern-Templates)
 
 ## Configuration
 
@@ -233,61 +146,23 @@ MODEL=llama3.2:1b
 PORT=8003
 ```
 
-## Integration with Other Agents
-
-### Input from Sentiment Agent
-```
-GET http://agent_sentiment:8001/analyze
-→ {"label": "positive", "score": 0.8, "distress_score": 0.1}
-```
-
-### Input from Pattern Agent
-```
-GET http://agent_pattern:8002/detect
-→ ["work", "relationships", "sleep"]
-```
-
 ## Decision Flow
 
 ```
-User opens journal/posts entry
+Frontend (Prompt-Bubble im Editor)
+    ↓  POST /generate-prompts (text, entries, use_*-Flags, sentiment-Override)
+Kontext orchestrieren (context_fetcher):
+  Override aus Request → Live-Analyse (persist=false) → gespeichertes Ergebnis → weglassen
     ↓
-Extract sentiment (sentiment_agent) + patterns (pattern_agent)
+Ollama-Generierung mit Kontextblock (Stimmung, Themen, Wochenrückblick)
+    ↓  (Ollama offline / zu wenige Fragen)
+Auffüllen aus der Offline-Bibliothek (library_prompts)
     ↓
-[ContextAnalyzer.choose_prompt_type()]
-    ↓
-Is distress_score > 0.7? → YES → Use SAFETY prompt
-    ↓
-Is streak milestone (30/60/90)? → YES → Use MILESTONE prompt
-    ↓
-Is streak=0 after pause? → YES → Use STREAK_BREAK prompt
-    ↓
-Context-specific routing:
-  - "weekly" → TEMPORAL + "weekly_reflection"
-  - "morning"/"evening" → TEMPORAL + time-based
-  - detected_patterns? → PATTERN_BASED
-  - sentiment_label? → SENTIMENT_BASED
-  - else → STARTER
-    ↓
-[PromptLibrary.get_prompt_by_category()] or [LLM generation via Ollama]
-    ↓
-Return selected prompt + metadata
+4 Fragen + mode/source/context_used
 ```
 
 ## Explainability
 
-Every prompt response includes `context_reason` for transparency:
-- "Blank page prevention - user just opened editor"
-- "Distress signal detected"
-- "Detected recurring pattern: work"
-- "Sentiment analysis: positive"
-
-This helps users understand why they're seeing this specific question.
-
-## Future Enhancements
-
-- [ ] User preference learning (favor certain prompt types)
-- [ ] Time-of-day optimization
-- [ ] Sequence learning (better flow between prompts)
-- [ ] A/B testing for prompt effectiveness
-- [ ] Integration with notification scheduling
+Die Response enthält `source` (ollama/mixed/library) und `context_used`
+(welche Agents tatsächlich eingeflossen sind) – so ist nachvollziehbar,
+woher die Fragen kommen.

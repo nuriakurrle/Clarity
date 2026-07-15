@@ -87,8 +87,9 @@ export async function fetchReflectionPrompts(
           blocked_topics: opts?.blockedTopics ?? null,
         }),
       },
-      // Live-Analysen (bis 45s) + Ollama-Generierung (bis 30s) abdecken
-      120000,
+      // Live-Analysen (bis 45s) + Ollama-Generierung (bis 90s, kalter
+      // Modell-Load beim ersten Request) abdecken
+      150000,
     );
     return {
       prompts: data.prompts ?? [],
