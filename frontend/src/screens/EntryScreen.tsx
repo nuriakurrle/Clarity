@@ -51,7 +51,11 @@ import { DEFAULT_FORMAT, EditorFormat } from '../components/entry/EditorToolbar'
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 import { analyzeEntry, detectPatterns, uploadEntryImage } from '../services/api';
-import { notifyOnNewPatterns } from '../services/notifications';
+import {
+  notifyAnalysisDone,
+  notifyOnNewPatterns,
+  scheduleInactivityNudge,
+} from '../services/notifications';
 import { colors, moodColor, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
 
@@ -222,9 +226,11 @@ export default function EntryScreen({ onDone }: Props) {
         await Promise.allSettled(images.map((uri) => uploadEntryImage(saved.entry_id, uri)));
       }
       discardDraft();
-      // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert).
-      // Der Agent liest die echten Eintraege der letzten 7 Tage aus der DB.
-      // Danach ggf. eine lokale Push bei neu erkanntem Muster/Trigger.
+      // Analyse-Meldung (pollt im Hintergrund) und Inaktivitaets-Stupser neu setzen.
+      notifyAnalysisDone(saved.entry_id).catch(() => {});
+      scheduleInactivityNudge().catch(() => {});
+      // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert),
+      // danach ggf. eine lokale Push bei neu erkanntem Muster/Trigger.
       detectPatterns()
         .then((pattern) => notifyOnNewPatterns(pattern))
         .catch(() => {});

@@ -531,6 +531,17 @@ def save_pattern(
     conn.close()
 
 
+def _decode_pattern_row(row) -> Dict[str, Any]:
+    """Dekodiert die JSON-Spalten einer pattern_detection-Zeile."""
+    pattern = dict(row)
+    for field in ("top_themes", "recurring_people", "situations", "language_shifts",
+                  "observations", "new_themes"):
+        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else []
+    for field in ("triggers", "theme_counts", "theme_changes"):
+        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else {}
+    return pattern
+
+
 def get_latest_pattern() -> Optional[Dict[str, Any]]:
     """Return the most recent pattern detection, with JSON fields decoded.
 
@@ -541,15 +552,24 @@ def get_latest_pattern() -> Optional[Dict[str, Any]]:
         "SELECT * FROM pattern_detection ORDER BY created_at DESC, id DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    if row is None:
-        return None
-    pattern = dict(row)
-    for field in ("top_themes", "recurring_people", "situations", "language_shifts",
-                  "observations", "new_themes"):
-        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else []
-    for field in ("triggers", "theme_counts", "theme_changes"):
-        pattern[field] = json.loads(pattern[field]) if pattern.get(field) else {}
-    return pattern
+    return _decode_pattern_row(row) if row is not None else None
+
+
+def get_pattern_before(before: str) -> Optional[Dict[str, Any]]:
+    """Return the most recent pattern detection created strictly before `before`.
+
+    Genutzt fuer den Wochenvergleich: die aktuelle Analyse deckt das aktuelle
+    Fenster ab, dieser Aufruf holt die letzte Analyse DAVOR (statt der Analyse von
+    vor wenigen Minuten, die dasselbe Fenster abdeckt). Feldkodierung wie oben.
+    """
+    conn = get_db_connection()
+    row = conn.execute(
+        "SELECT * FROM pattern_detection WHERE created_at < ? "
+        "ORDER BY created_at DESC, id DESC LIMIT 1",
+        (before,),
+    ).fetchone()
+    conn.close()
+    return _decode_pattern_row(row) if row is not None else None
 
 def save_prompts(entry_id: int, prompts: list) -> None:
     """Save generated prompts"""

@@ -145,7 +145,7 @@ export type PatternResult = {
   mood_trend: 'improving' | 'stable' | 'declining';
   summary: string;
   created_at?: string;
-  status?: 'no_data' | 'insufficient_data';
+  status?: 'no_data' | 'insufficient_data' | 'no_pattern';
 };
 
 /** Ein Schlagwort aus den Einträgen (Pattern-Agent, GET /keywords).
