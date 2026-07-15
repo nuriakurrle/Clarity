@@ -62,7 +62,12 @@ KEEP_ALIVE = "30m"
 PROMPTS_SCHEMA = {
     "type": "object",
     "properties": {
-        "prompts": {"type": "array", "items": {"type": "string"}},
+        "prompts": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 4,
+            "maxItems": 4,
+        },
     },
     "required": ["prompts"],
 }
@@ -129,7 +134,9 @@ async def generate_prompts(request: PromptsGenerateRequest):
                         "keep_alive": KEEP_ALIVE,
                         # num_predict: 4 kurze Fragen brauchen keine langen
                         # Antworten – auf CPU zaehlt jeder gesparte Token.
-                        "options": {"temperature": 0.6, "num_predict": 250},
+                        # temperature moderat: das 1b-Modell driftet bei 0.6
+                        # oefter in Aussagesaetze statt Fragen ab.
+                        "options": {"temperature": 0.4, "num_predict": 250},
                     },
                 )
                 prompts = _parse_prompts(response.json().get("response", ""))
@@ -137,7 +144,10 @@ async def generate_prompts(request: PromptsGenerateRequest):
             # repr statt str: httpx.ReadTimeout hat eine leere Message
             logger.error(f"❌ Ollama offline, nutze Bibliothek: {e!r}")
 
-    prompts = [p for p in prompts if isinstance(p, str) and p.strip()]
+    # Das 1b-Modell liefert gelegentlich Platzhalter ("F1?") oder JSON-Reste
+    # ("}") statt echter Fragen – die duerfen nicht in der App landen,
+    # sondern kippen in die Bibliotheks-Auffuellung.
+    prompts = [p.strip() for p in prompts if _plausible_prompt(p)]
 
     # 2) Offline-Modus / Auffuellung aus der Bibliothek
     if len(prompts) < 4:
@@ -168,6 +178,14 @@ async def generate_prompts(request: PromptsGenerateRequest):
         source=source,
         context_used=list(context_modes.keys()),
     )
+
+
+def _plausible_prompt(p) -> bool:
+    """Echte Frage statt Platzhalter, Fragment oder Aussagesatz."""
+    if not isinstance(p, str):
+        return False
+    p = p.strip()
+    return len(p) >= 10 and " " in p and p.endswith("?")
 
 
 def _parse_prompts(raw: str) -> list[str]:
@@ -233,25 +251,32 @@ def _build_prompts_prompt(
     avoid = ""
     if blocked_topics:
         avoid = (
-            f"\nVERMEIDE diese Themen komplett: "
+            f" Vermeide diese Themen komplett: "
             f"{', '.join(blocked_topics)}."
         )
 
+    # Prompt-Aufbau fuers 1b-Modell: keine Persona ("Du bist eine ...")
+    # und kein JSON-Beispiel – beides echot das Modell als Antwort. Inhalt
+    # zuerst, Aufgabe ans Ende, Fragen-Zwang explizit, sonst kommen
+    # Aussagesaetze. Die JSON-Struktur erzwingt PROMPTS_SCHEMA via format.
     if is_starter:
         return (
-            "Du bist eine sanfte Journaling-Begleiterin. Die Seite ist fast leer."
-            f"{ctx_block}{avoid}\n"
-            "Stelle 4 kurze, warme Einstiegsfragen auf Deutsch. Wenn Kontext "
-            "(Stimmung, Themen, Wochenrückblick) gegeben ist, beziehe dich darauf.\n\n"
-            'Antworte NUR mit JSON:\n{"prompts": ["F1?","F2?","F3?","F4?"]}'
+            "Eine Person öffnet ihr Tagebuch, die Seite ist noch leer.\n"
+            f"{ctx_block}\n"
+            "Aufgabe: Formuliere 4 kurze, warme Einstiegsfragen auf Deutsch, "
+            "die der Person den Start ins Schreiben erleichtern. Beziehe dich "
+            "auf den Kontext, wenn er hilfreich ist. Sprich die Person mit du "
+            "an. Jede Frage endet mit einem Fragezeichen. Schreibe keine "
+            f"Aussagen, nur Fragen.{avoid}"
         )
     return (
-        "Du bist eine sanfte Journaling-Begleiterin. "
-        f"Grundlage (Deutsch):\n\"{content}\"\n{ctx_block}{avoid}\n"
-        "Stelle 4 kurze, tiefe Reflexionsfragen auf Deutsch. Beziehe dich, "
-        "wo sinnvoll, auf Stimmung, wiederkehrende Themen und den "
-        "Wochenrückblick.\n\n"
-        'Antworte NUR mit JSON:\n{"prompts": ["F1?","F2?","F3?","F4?"]}'
+        f"Tagebucheintrag:\n\"{content}\"\n"
+        f"{ctx_block}\n"
+        "Aufgabe: Formuliere 4 kurze, tiefe Reflexionsfragen auf Deutsch an "
+        "die Person, die diesen Eintrag geschrieben hat. Beziehe dich auf "
+        "den Eintrag und den Kontext. Sprich die Person mit du an. Jede "
+        "Frage endet mit einem Fragezeichen. Schreibe keine Aussagen, nur "
+        f"Fragen.{avoid}"
     )
 
 
