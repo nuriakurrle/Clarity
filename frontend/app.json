@@ -25,6 +25,12 @@
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Clarity nutzt das Mikrofon, um gesprochene Tagebucheinträge aufzunehmen und lokal zu transkribieren."
+        }
       ]
     ]
   }

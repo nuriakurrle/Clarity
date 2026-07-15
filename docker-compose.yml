@@ -34,9 +34,50 @@ services:
       - clarity-network
     restart: "no"
 
+  # Die Agenten laufen als Nicht-root-Benutzer. Ältere Dateien unter ./data
+  # wurden aber noch als root erzeugt – dieser Service macht sie einmalig
+  # beim Start beschreibbar und beendet sich dann (gleiches Muster wie
+  # ollama-init).
+  data-init:
+    build:
+      context: ./backend
+    image: clarity-backend
+    container_name: clarity_data_init
+    user: root
+    command: chmod -R a+rwX /data
+    volumes:
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: "no"
+
+  # Demo-Daten für Tester/Korrektur (~7 Monate Beispiel-Einträge inkl.
+  # Analysen, damit Insights/Home sofort gefüllt sind). Läuft NUR auf
+  # ausdrücklichen Wunsch – niemals automatisch, es schreibt ins Tagebuch:
+  #   docker compose --profile demo up seed
+  seed:
+    build:
+      context: ./backend
+    image: clarity-backend
+    container_name: clarity_seed
+    profiles: ["demo"]
+    user: root
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["python /scripts/seed_data.py --db /data/clarity.db && chmod -R a+rwX /data"]
+    volumes:
+      - ./scripts:/scripts:ro
+      - ./data:/data
+    networks:
+      - clarity-network
+    restart: "no"
+
+  # Alle Agenten nutzen dasselbe Image (backend/Dockerfile); es wird nur
+  # einmal gebaut. Welcher Agent läuft, bestimmt `command:`.
   agent_sentiment:
     build:
-      context: ./backend/agent_sentiment
+      context: ./backend
+    image: clarity-backend
+    command: python agent_sentiment/main.py
     container_name: clarity_sentiment
     ports:
       - "8001:8000"
@@ -45,12 +86,13 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -58,7 +100,9 @@ services:
 
   agent_pattern:
     build:
-      context: ./backend/agent_pattern
+      context: ./backend
+    image: clarity-backend
+    command: python agent_pattern/main.py
     container_name: clarity_pattern
     ports:
       - "8002:8000"
@@ -67,12 +111,13 @@ services:
         condition: service_healthy
       ollama-init:
         condition: service_completed_successfully
+      data-init:
+        condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
       - MODEL=llama3.2:3b
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -80,7 +125,9 @@ services:
 
   agent_prompt:
     build:
-      context: ./backend/agent_prompt
+      context: ./backend
+    image: clarity-backend
+    command: python agent_prompt/main.py
     container_name: clarity_prompt
     ports:
       - "8003:8000"
@@ -88,6 +135,8 @@ services:
       ollama:
         condition: service_healthy
       ollama-init:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
       agent_sentiment:
         condition: service_started
@@ -103,7 +152,6 @@ services:
       - DIGEST_AGENT_URL=http://agent_digest:8000
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
     networks:
       - clarity-network
@@ -111,7 +159,9 @@ services:
 
   agent_digest:
     build:
-      context: ./backend/agent_digest
+      context: ./backend
+    image: clarity-backend
+    command: python agent_digest/main.py
     container_name: clarity_digest
     ports:
       - "8004:8000"
@@ -119,6 +169,8 @@ services:
       ollama:
         condition: service_healthy
       ollama-init:
+        condition: service_completed_successfully
+      data-init:
         condition: service_completed_successfully
     environment:
       - OLLAMA_HOST=http://ollama:11434
@@ -128,8 +180,26 @@ services:
       - PATTERN_AGENT_URL=http://agent_pattern:8000
       - PYTHONUNBUFFERED=1
     volumes:
-      - ./backend/shared:/app/shared:ro
       - ./data:/data
+    networks:
+      - clarity-network
+    restart: unless-stopped
+
+  # Speech-to-Text mit Whisper (lokal, ohne Ollama/LLM). Das Modell wird
+  # beim ersten Start heruntergeladen und im Volume gecacht.
+  agent_transcribe:
+    build:
+      context: ./backend
+    image: clarity-backend
+    command: python agent_transcribe/main.py
+    container_name: clarity_transcribe
+    ports:
+      - "8005:8000"
+    environment:
+      - WHISPER_MODEL=small
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - whisper_models:/whisper-cache
     networks:
       - clarity-network
     restart: unless-stopped
@@ -140,3 +210,4 @@ networks:
 
 volumes:
   ollama_data:
+  whisper_models:

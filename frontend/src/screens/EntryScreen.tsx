@@ -2,7 +2,7 @@
  * EntryScreen – Eingabemaske für einen neuen Tagebucheintrag.
  *
  * Titel, Fließtext und Stimmungsauswahl. Datum/Uhrzeit kommen direkt von
- * der Geräteuhr. „Fertig" schickt den Eintrag an den Sentiment-Agenten
+ * der Geräteuhr. „Speichern" schickt den Eintrag an den Sentiment-Agenten
  * (`POST /analyze`), der ihn sofort in SQLite speichert und die emotionale
  * Auswertung als Hintergrund-Task nachzieht – davon leben später Einblicke
  * & Wochenrückblick. Ein Entwurf wird fortlaufend in AsyncStorage gesichert
@@ -15,8 +15,10 @@
  * Editor-Extras (Toolbar über der Tastatur):
  * - „Aa" klappt das Format-Panel auf (Schrift, Größe, Ausrichtung, Farbe);
  *   formatiert wird zeilenweise – jede Zeile ist ein eigener Block (BlockEditor)
- * - Bild-Button hängt Fotos aus der Galerie an (bleiben lokal auf dem Gerät)
- * - Mikro diktiert per Web Speech API auf Deutsch in den Eintrag
+ * - Bild-Button hängt Fotos aus der Galerie an; sie werden beim Speichern
+ *   mit hochgeladen (Backend: /data/images) und gehören zum Eintrag
+ * - Mikro nimmt die Stimme auf und transkribiert sie lokal per Whisper
+ *   (Transcribe-Agent, Deutsch/Englisch automatisch) in den Eintrag
  * - Stimmung wird oben unterm Datum gewählt (MoodBar), nicht mehr im Footer
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -45,10 +47,10 @@ import {
 } from '../components/entry';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Block, BlockEditorHandle, newBlockId } from '../components/entry/BlockEditor';
-import { DEFAULT_FORMAT, EditorFormat, formatToStyle } from '../components/entry/EditorToolbar';
-import { useDictation } from '../hooks/useDictation';
+import { DEFAULT_FORMAT, EditorFormat } from '../components/entry/EditorToolbar';
+import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
-import { analyzeEntry, detectPatterns } from '../services/api';
+import { analyzeEntry, detectPatterns, uploadEntryImage } from '../services/api';
 import { notifyOnNewPatterns } from '../services/notifications';
 import { colors, moodColor, MoodLevel } from '../theme/colors';
 import { serif } from '../theme/typography';
@@ -132,14 +134,14 @@ export default function EntryScreen({ onDone }: Props) {
 
   // Tastatur offen? Dann Editor-Leiste direkt über der Tastatur zeigen
   // (Android/Edge-to-Edge hebt nichts automatisch an, deshalb selbst schieben)
-  // und die Fußzeile (Stimmung + Fertig) so lange ausblenden.
+  // und die Fußzeile (Stimmung + Speichern) so lange ausblenden.
   const keyboardHeight = useKeyboardHeight();
   const keyboardOpen = keyboardHeight > 0;
   // iOS schiebt schon die KeyboardAvoidingView – nur Android braucht Padding
   const keyboardPad = Platform.OS === 'android' ? keyboardHeight : 0;
 
-  // Diktierte Sätze ans Ende der letzten Zeile anhängen (mit Leerzeichen davor)
-  const dictation = useDictation((text) =>
+  // Transkribierten Text ans Ende der letzten Zeile anhängen (mit Leerzeichen davor)
+  const voice = useVoiceRecorder((text) =>
     setBlocks((prev) => {
       const last = prev[prev.length - 1];
       const merged = last.text.trim() ? `${last.text.trimEnd()} ${text}` : text;
@@ -158,17 +160,30 @@ export default function EntryScreen({ onDone }: Props) {
     setImages((prev) => [...prev, ...uris.filter((u) => !prev.includes(u))]);
   };
 
-  const handleToggleDictation = () => {
-    if (!dictation.supported) {
-      Alert.alert(
-        'Diktieren nicht verfügbar',
-        'Spracheingabe läuft aktuell im Browser (Chrome/Edge/Safari). In der nativen App folgt sie mit einem Development-Build.',
-      );
+  const handleToggleDictation = async () => {
+    if (voice.transcribing) return; // läuft schon – Ergebnis abwarten
+    if (voice.recording) {
+      await voice.stop();
       return;
     }
-    if (dictation.listening) dictation.stop();
-    else dictation.start();
+    await voice.start();
   };
+
+  // Fehler aus dem Recorder als Alert melden (Berechtigung/Backend), auf Web
+  // ist Alert ein No-op → window.alert.
+  useEffect(() => {
+    if (!voice.error) return;
+    const message =
+      voice.error === 'permission'
+        ? 'Bitte erlaube den Mikrofon-Zugriff, um deine Stimme aufzunehmen.'
+        : 'Die Aufnahme konnte nicht transkribiert werden. Läuft das Backend (docker compose up) und bist du im selben WLAN?' +
+          (voice.errorDetail ? `\n\nDetails: ${voice.errorDetail}` : '');
+    if (Platform.OS === 'web') {
+      (globalThis as { alert?: (msg: string) => void }).alert?.(message);
+    } else {
+      Alert.alert('Spracheingabe', message);
+    }
+  }, [voice.error]);
 
   const discardDraft = () => AsyncStorage.removeItem(DRAFT_KEY).catch(() => {});
 
@@ -183,7 +198,12 @@ export default function EntryScreen({ onDone }: Props) {
     try {
       // Speichert den Eintrag sofort; die Sentiment-Analyse läuft im Backend
       // als Hintergrund-Task – die Antwort kommt ohne LLM-Wartezeit.
-      await analyzeEntry(text, mood ?? undefined);
+      const saved = await analyzeEntry(text, mood ?? undefined);
+      // Angehängte Bilder zum Eintrag hochladen (Backend: /data/images + DB).
+      // allSettled: Ein fehlgeschlagenes Bild verwirft nicht den Eintrag.
+      if (images.length > 0) {
+        await Promise.allSettled(images.map((uri) => uploadEntryImage(saved.entry_id, uri)));
+      }
       discardDraft();
       // Muster im Hintergrund neu berechnen (nicht blockierend, LLM dauert).
       // Der Agent liest die echten Eintraege der letzten 7 Tage aus der DB.
@@ -299,12 +319,6 @@ export default function EntryScreen({ onDone }: Props) {
             uris={images}
             onRemove={(uri) => setImages((prev) => prev.filter((u) => u !== uri))}
           />
-          {images.length > 0 ? (
-            <Text style={styles.imagesHint}>
-              Bilder bleiben nur in dieser Schreibsitzung – sie werden nicht mit
-              dem Eintrag gespeichert.
-            </Text>
-          ) : null}
 
           <View style={styles.editor}>
             <BlockEditor
@@ -316,12 +330,6 @@ export default function EntryScreen({ onDone }: Props) {
             />
           </View>
 
-          {/* Live-Vorschau des gerade gesprochenen Satzes (landet in der letzten Zeile) */}
-          {dictation.listening && dictation.interim ? (
-            <Text style={[styles.interim, formatToStyle(blocks[blocks.length - 1].format)]}>
-              {dictation.interim}…
-            </Text>
-          ) : null}
         </ScrollView>
 
         {/* Editor-Leiste: sitzt über der Tastatur (KeyboardAvoidingView schiebt
@@ -336,8 +344,8 @@ export default function EntryScreen({ onDone }: Props) {
             formatOpen={formatOpen}
             onToggleFormat={() => setFormatOpen((v) => !v)}
             onAddImage={handleAddImage}
-            dictating={dictation.listening}
-            dictationSupported={dictation.supported}
+            dictating={voice.recording}
+            transcribing={voice.transcribing}
             onToggleDictation={handleToggleDictation}
           />
         </View>
@@ -371,7 +379,7 @@ export default function EntryScreen({ onDone }: Props) {
               {saving ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.doneText}>Fertig</Text>
+                <Text style={styles.doneText}>Speichern</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -391,25 +399,23 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  date: { fontSize: 13, color: colors.warm, fontWeight: '600' },
+  // Neutral wie die Datumszeilen in Verlauf/Kalender (früher: Orange/warm);
+  // etwas größer als dort, aber bewusst kleiner als „Wie fühlst du dich?".
+  date: { fontSize: 15, color: colors.textMuted, fontWeight: '600' },
   title: {
     fontFamily: serif,
     fontSize: 28,
     fontWeight: '700',
     color: colors.text,
-    marginTop: 6,
+    marginTop: 24,
     marginBottom: 16,
     padding: 0,
     ...noOutline,
   },
-  // Ehrlicher Hinweis: Bilder werden (noch) nicht persistiert
-  imagesHint: { fontSize: 12, lineHeight: 16, color: colors.textFaint, marginTop: 6 },
   // Zeilen-Blöcke: Größe/Farbe/Font je Zeile kommen aus dem BlockEditor
   editor: {
     marginTop: 12,
   },
-  // Gesprochener Satz, solange er noch nicht final erkannt ist
-  interim: { opacity: 0.45, marginTop: 4 },
   // zIndex: Editor-Leiste samt Format-Panel liegt ÜBER dem Prompt-Orb –
   // klappt das Panel auf, verschwindet der (kleine) Orb dahinter statt
   // es zu überlagern.
@@ -438,7 +444,7 @@ const styles = StyleSheet.create({
     bottom: 74,
     pointerEvents: 'box-none',
   },
-  // Nur noch „Fertig" – die Stimmung wird oben in der MoodBar gewählt
+  // Nur noch „Speichern" – die Stimmung wird oben in der MoodBar gewählt
   footer: {
     flexDirection: 'row',
     alignItems: 'center',

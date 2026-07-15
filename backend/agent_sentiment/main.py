@@ -1,7 +1,9 @@
 """Clarity Sentiment Agent - Port 8001 - Emotional Tone Analysis with Longitudinal Mood Profile"""
-import os, json, re, logging, sys
+import asyncio
+import os, json, re, logging, sys, uuid
 from collections import defaultdict
-from fastapi import BackgroundTasks, FastAPI
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
@@ -13,7 +15,8 @@ sys.path.insert(0, '/app/shared')
 from database import (
     init_db, save_sentiment, save_entry, get_mood_profile,
     save_mood_profile, calculate_mood_trend, get_emotional_summary,
-    get_entries_with_sentiment, get_db_connection
+    get_entries_with_sentiment, get_db_connection, update_entry_content,
+    delete_entry, save_entry_image, get_entry_images, delete_entry_image
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +34,36 @@ MODEL = os.getenv("MODEL", "llama3.2:1b")
 async def startup():
     init_db()
     logger.info("✅ Database initialized")
+    # Liegengebliebene Analysen nachholen (z. B. Ollama war beim Speichern down)
+    asyncio.create_task(backfill_missing_analyses())
+
+
+async def backfill_missing_analyses():
+    """Analysiert periodisch alle Einträge nach, die noch kein Sentiment haben.
+
+    /analyze speichert save-first und analysiert im Hintergrund – schlägt das
+    fehl (Ollama down, kaputtes JSON), bliebe der Eintrag sonst für immer ohne
+    Stimmung (grau im Kalender, fehlt im Verlauf).
+    """
+    await asyncio.sleep(60)  # Ollama Zeit zum Hochfahren geben
+    while True:
+        try:
+            conn = get_db_connection()
+            rows = conn.execute(
+                """SELECT e.id, e.content FROM entries e
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM sentiment_analysis s WHERE s.entry_id = e.id
+                   )
+                   ORDER BY e.id"""
+            ).fetchall()
+            conn.close()
+            if rows:
+                logger.info(f"🔁 Backfill: {len(rows)} Einträge ohne Analyse")
+            for row in rows:
+                await run_analysis(row["id"], TextInput(text=row["content"], entry_id=row["id"]))
+        except Exception as e:
+            logger.error(f"❌ Backfill failed: {e}")
+        await asyncio.sleep(1800)  # alle 30 Minuten erneut prüfen
 
 class TextInput(BaseModel):
     text: str
@@ -125,6 +158,16 @@ Rules:
                 sentiment_data = json.loads(json_match.group())
                 logger.info(f"✅ Sentiment detected - Valence: {sentiment_data.get('valence')}, Intensity: {sentiment_data.get('intensity')}")
 
+                # Eintrag könnte während der LLM-Analyse gelöscht worden sein –
+                # dann nichts speichern, sonst entstehen verwaiste Analyse-Zeilen,
+                # die die Mood-Statistiken verfälschen.
+                conn = get_db_connection()
+                exists = conn.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone()
+                conn.close()
+                if not exists:
+                    logger.info(f"🗑️ Entry {entry_id} was deleted during analysis – skipping save")
+                    return
+
                 # 💾 SAVE TO DATABASE
                 save_sentiment(
                     entry_id,
@@ -145,6 +188,105 @@ Rules:
     except Exception as e:
         # Kein Re-Raise: Hintergrund-Task, der Eintrag selbst ist gespeichert.
         logger.error(f"❌ Analysis failed for entry {entry_id}: {e}")
+
+class UpdateEntryInput(BaseModel):
+    text: str
+
+@app.put("/entries/{entry_id}")
+async def update_entry(entry_id: int, input: UpdateEntryInput, background_tasks: BackgroundTasks):
+    """
+    Update the text of an existing entry (edit from the app's detail view).
+    Save-first like /analyze: the new text is persisted immediately, then the
+    sentiment analysis re-runs as a background task so history/insights use
+    the edited content.
+    """
+    if not input.text.strip():
+        raise HTTPException(status_code=400, detail="Entry text must not be empty")
+    if not update_entry_content(entry_id, input.text):
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+    logger.info(f"✏️ Updated entry {entry_id}: {input.text[:50]}...")
+    background_tasks.add_task(run_analysis, entry_id, TextInput(text=input.text, entry_id=entry_id))
+    return {"entry_id": entry_id, "status": "queued"}
+
+# --- Bilder zu Einträgen ------------------------------------------------------
+
+# Dateien liegen im Docker-Volume neben der SQLite-DB (./data auf dem Host).
+IMAGES_DIR = "/data/images"
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".heic"}
+
+@app.post("/entries/{entry_id}/images")
+async def upload_entry_image(entry_id: int, file: UploadFile = File(...)):
+    """
+    Attach an image to an entry. The file is stored under /data/images with a
+    generated name (entryid_uuid.ext), the filename is recorded in the DB and
+    returned so the app can display it via GET /images/{filename}.
+    """
+    conn = get_db_connection()
+    exists = conn.execute("SELECT 1 FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    conn.close()
+    if not exists:
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image file")
+
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in ALLOWED_IMAGE_EXT:
+        ext = ".jpg"
+    filename = f"{entry_id}_{uuid.uuid4().hex}{ext}"
+    os.makedirs(IMAGES_DIR, exist_ok=True)
+    with open(os.path.join(IMAGES_DIR, filename), "wb") as f:
+        f.write(data)
+    save_entry_image(entry_id, filename)
+    logger.info(f"🖼️ Saved image for entry {entry_id}: {filename} ({len(data)} bytes)")
+    return {"entry_id": entry_id, "filename": filename}
+
+@app.delete("/entries/{entry_id}/images/{filename}")
+async def delete_entry_image_endpoint(entry_id: int, filename: str):
+    """Remove a single image from an entry (DB row and file on disk)."""
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    if not delete_entry_image(entry_id, filename):
+        raise HTTPException(
+            status_code=404, detail=f"Image {filename} not found for entry {entry_id}"
+        )
+    try:
+        os.unlink(os.path.join(IMAGES_DIR, filename))
+    except OSError:
+        pass  # Datei fehlt schon – DB ist die Quelle der Wahrheit
+    logger.info(f"🗑️ Deleted image {filename} from entry {entry_id}")
+    return {"entry_id": entry_id, "filename": filename, "status": "deleted"}
+
+@app.get("/images/{filename}")
+async def get_image(filename: str):
+    """Serve an attached image. Filenames are generated (no user input paths)."""
+    # Kein Pfad-Traversal: nur nackte Dateinamen zulassen.
+    if os.path.basename(filename) != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    path = os.path.join(IMAGES_DIR, filename)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path)
+
+@app.delete("/entries/{entry_id}")
+async def delete_entry_endpoint(entry_id: int):
+    """
+    Delete an entry including its sentiment analysis, mood profile rows,
+    generated prompts and attached images (DB rows AND files), so history,
+    calendar and insights stay consistent.
+    """
+    # Bild-Dateien zuerst einsammeln – delete_entry räumt die DB-Zeilen weg.
+    filenames = get_entry_images(entry_id)
+    if not delete_entry(entry_id):
+        raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
+    for filename in filenames:
+        try:
+            os.unlink(os.path.join(IMAGES_DIR, filename))
+        except OSError:
+            pass  # Datei fehlt schon – DB ist die Quelle der Wahrheit
+    logger.info(f"🗑️ Deleted entry {entry_id} (+{len(filenames)} images)")
+    return {"entry_id": entry_id, "status": "deleted"}
 
 @app.get("/entries")
 async def list_entries():
@@ -242,61 +384,99 @@ STOPWORDS = {
 }
 
 
-def _entries_with_valence(days: int) -> list:
+def _entries_with_valence(days: int, since: Optional[str] = None) -> list:
     """Einträge der letzten `days` Tage mit der Valenz ihrer neuesten Analyse.
 
     Basis für die Key-Themes: pro Eintrag Text + Stimmungswert, damit jedes
     Schlagwort nach der durchschnittlichen Stimmung eingefärbt werden kann.
+    `since` (UTC, "YYYY-MM-DD HH:MM:SS") gewinnt vor `days` – damit kann die
+    App Kalender-Fenster abfragen (z. B. seit Montag 00:00) statt rollierend.
     """
+    if since:
+        where_sql = "WHERE e.created_at >= ?"
+        param = since
+    else:
+        where_sql = "WHERE e.created_at >= datetime('now', ? || ' days')"
+        param = f"-{days}"
     conn = get_db_connection()
     rows = conn.execute(
-        """SELECT e.content, s.valence
+        f"""SELECT e.content, s.valence
            FROM entries e
            LEFT JOIN sentiment_analysis s ON s.id = (
                SELECT MAX(id) FROM sentiment_analysis WHERE entry_id = e.id
            )
-           WHERE e.created_at >= datetime('now', ? || ' days')""",
-        (f'-{days}',),
+           {where_sql}""",
+        (param,),
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
-@app.get("/keywords")
-async def keywords(days: int = 30, limit: int = 10, min_len: int = 4):
-    """Häufigste, inhaltstragende Schlagwörter der letzten `days` Tage.
+# Zeichen, die einen Satz beenden – ein großgeschriebenes Wort direkt danach
+# ist einfach nur Satzanfang und sagt nichts über die Wortart aus.
+_SENTENCE_END = ".!?…:\n\r"
 
-    Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (ohne
-    Stoppwörter), und färbt jedes Wort nach der durchschnittlichen Stimmung
-    dieser Einträge ein. Rein deterministisch – kein LLM, also sofort da.
+
+def _nouns_in(content: str, min_len: int) -> set:
+    """Substantiv-Heuristik ohne NLP: Wörter, die mitten im Satz großgeschrieben
+    stehen, sind im Deutschen fast immer Substantive oder Namen ("Mama",
+    "Prüfung"). Adjektive/Füllwörter ("wundervoller", "supi") fallen raus.
+    Liefert die kleingeschriebenen Wortformen (für Zählung/Deduplizierung).
     """
-    rows = _entries_with_valence(days)
+    nouns = set()
+    for m in re.finditer(r"[A-Za-zÄÖÜäöüß]+", content):
+        w = m.group()
+        if len(w) < min_len or not w[0].isupper():
+            continue
+        # Kontext davor: Leerraum/Anführungszeichen/Klammern überspringen,
+        # dann entscheiden, ob das Wort am Satzanfang steht.
+        before = content[: m.start()].rstrip(" \t\"'„“‚’«»()[]–—-")
+        if not before or before[-1] in _SENTENCE_END:
+            continue
+        lw = w.lower()
+        if lw not in STOPWORDS:
+            nouns.add(lw)
+    return nouns
+
+
+@app.get("/keywords")
+async def keywords(days: int = 30, limit: int = 10, min_len: int = 4, since: Optional[str] = None):
+    """Häufigste Substantive/Namen der letzten `days` Tage als "Key Themes".
+
+    Zählt Wörter nach der Zahl der Einträge, in denen sie vorkommen (nur
+    Substantive per Großschreibungs-Heuristik, ohne Stoppwörter), und färbt
+    jedes Wort nach der durchschnittlichen Stimmung dieser Einträge ein.
+    Rein deterministisch – kein LLM, also sofort da.
+    Optional `since` (UTC, "YYYY-MM-DD HH:MM:SS") für Kalender-Fenster
+    (z. B. aktuelle Woche ab Montag) statt rollierender `days`.
+    """
+    rows = _entries_with_valence(days, since)
 
     doc_freq = defaultdict(int)     # in wie vielen Einträgen kommt das Wort vor
     valence_sum = defaultdict(float)
     valence_n = defaultdict(int)
+    display = {}                    # kleingeschrieben -> Original-Schreibweise
 
     for row in rows:
-        content = (row.get("content") or "").lower()
+        content = row.get("content") or ""
         valence = row.get("valence")
-        # Pro Eintrag jedes Wort nur einmal (Dokument-Frequenz), Stoppwörter raus.
-        words = {
-            w for w in re.split(r"[^a-zäöüß]+", content)
-            if len(w) >= min_len and w not in STOPWORDS
-        }
-        for w in words:
+        # Pro Eintrag jedes Wort nur einmal (Dokument-Frequenz).
+        for w in _nouns_in(content, min_len):
             doc_freq[w] += 1
+            display.setdefault(w, w.capitalize())
             if valence is not None:
                 valence_sum[w] += valence
                 valence_n[w] += 1
 
-    # Nur Wörter, die in mindestens zwei Einträgen vorkommen -> echte "Themen".
-    candidates = {w: c for w, c in doc_freq.items() if c >= 2} or dict(doc_freq)
+    # Nur Wörter aus mindestens zwei Einträgen sind echte "Themen" – bewusst
+    # KEIN Fallback auf Einzeltreffer mehr: lieber eine leere Liste (die App
+    # zeigt dann "Noch keine Themen erkannt") als zufällige Einzelwörter.
+    candidates = {w: c for w, c in doc_freq.items() if c >= 2}
     ranked = sorted(candidates.items(), key=lambda kv: (kv[1], kv[0]), reverse=True)[:limit]
 
     keywords_out = [
         {
-            "word": word,
+            "word": display[word],
             "count": count,
             "valence": round(valence_sum[word] / valence_n[word], 3) if valence_n[word] else 0.0,
         }

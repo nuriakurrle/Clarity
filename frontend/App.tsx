@@ -10,41 +10,77 @@
  * Einblicke & Kalender sind aktuell bewusst leere Screens (siehe dort) –
  * nur die Tabs/das Routing dorthin existieren schon.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BottomNav, TabKey } from './src/components';
 import HomeScreen from './src/screens/HomeScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import EntryScreen from './src/screens/EntryScreen';
+import EntryDetailScreen from './src/screens/EntryDetailScreen';
 import InsightScreen from './src/screens/InsightScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
+import OnboardingScreen from './src/screens/OnboardingScreen';
+import { EntryRecord } from './src/services/api';
 import { colors } from './src/theme/colors';
+
+// AsyncStorage-Schluessel: gesetzt, sobald der Intro-Screen einmal weggeklickt
+// wurde. Danach startet die App direkt auf Home.
+const ONBOARDED_KEY = 'clarity.onboarded';
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('home');
-  const [showEntry, setShowEntry] = useState(false);
+  // undefined = noch nicht aus dem Speicher gelesen (kurzer leerer Frame statt
+  // eines Aufblitzens des Intros bei wiederkehrenden Nutzern).
+  const [onboarded, setOnboarded] = useState<boolean | undefined>(undefined);
 
-  const openEntry = () => setShowEntry(true);
+  useEffect(() => {
+    AsyncStorage.getItem(ONBOARDED_KEY)
+      .then((v) => setOnboarded(v === '1'))
+      .catch(() => setOnboarded(true)); // im Zweifel nicht erneut zeigen
+  }, []);
+
+  const finishOnboarding = () => {
+    setOnboarded(true);
+    AsyncStorage.setItem(ONBOARDED_KEY, '1').catch(() => {});
+  };
+  const [showEntry, setShowEntry] = useState(false);
+  // Angetippter Eintrag aus Verlauf/Kalender → Vollansicht (read-only)
+  const [viewEntry, setViewEntry] = useState<EntryRecord | null>(null);
+
+  const openEntry = () => {
+    setViewEntry(null);
+    setShowEntry(true);
+  };
   const closeEntry = () => setShowEntry(false);
 
   const changeTab = (key: TabKey) => {
     setShowEntry(false);
+    setViewEntry(null);
     setTab(key);
   };
 
   let screen: React.ReactNode;
   if (showEntry) {
     screen = <EntryScreen onDone={closeEntry} />;
+  } else if (viewEntry) {
+    screen = (
+      <EntryDetailScreen
+        entry={viewEntry}
+        onClose={() => setViewEntry(null)}
+        onUpdated={setViewEntry}
+      />
+    );
   } else if (tab === 'home') {
     screen = <HomeScreen onWrite={openEntry} />;
   } else if (tab === 'search') {
-    screen = <SearchScreen />;
+    screen = <SearchScreen onOpenEntry={setViewEntry} />;
   } else if (tab === 'insight') {
     screen = <InsightScreen />;
   } else {
-    screen = <CalendarScreen />;
+    screen = <CalendarScreen onOpenEntry={setViewEntry} />;
   }
 
   return (
@@ -52,10 +88,16 @@ export default function App() {
       <View style={styles.root}>
         <StatusBar style="dark" />
 
-        <View style={styles.screen}>{screen}</View>
+        {onboarded === undefined ? null : !onboarded ? (
+          <OnboardingScreen onStart={finishOnboarding} />
+        ) : (
+          <>
+            <View style={styles.screen}>{screen}</View>
 
-        {/* Beim Schreiben ausgeblendet: Fokus-Modus ohne Tabs und redundanten „+"-FAB */}
-        {!showEntry && <BottomNav active={tab} onChange={changeTab} onPressAdd={openEntry} />}
+            {/* Beim Schreiben ausgeblendet: Fokus-Modus ohne Tabs und redundanten „+"-FAB */}
+            {!showEntry && <BottomNav active={tab} onChange={changeTab} onPressAdd={openEntry} />}
+          </>
+        )}
       </View>
     </SafeAreaProvider>
   );

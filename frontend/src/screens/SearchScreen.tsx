@@ -25,6 +25,8 @@ type DisplayEntry = {
   title: string;
   body: string;
   valence: number | null;
+  /** Original-Datensatz – wird beim Antippen an die Vollansicht gereicht. */
+  record: EntryRecord;
 };
 
 /** "YYYY-MM-DD HH:MM:SS" (SQLite) → Date. */
@@ -72,6 +74,7 @@ function toDisplayEntry(e: EntryRecord): DisplayEntry {
     title,
     body,
     valence: e.valence,
+    record: e,
   };
 }
 
@@ -90,7 +93,12 @@ function makeSnippet(body: string, query: string): string {
   return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`;
 }
 
-export default function SearchScreen() {
+type Props = {
+  /** Öffnet die Vollansicht eines angetippten Eintrags (siehe App.tsx). */
+  onOpenEntry?: (entry: EntryRecord) => void;
+};
+
+export default function SearchScreen({ onOpenEntry }: Props) {
   const [query, setQuery] = useState('');
   const [entries, setEntries] = useState<DisplayEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -162,6 +170,7 @@ export default function SearchScreen() {
                     snippet={makeSnippet(e.body, q)}
                     valence={e.valence}
                     highlight={q || undefined}
+                    onPress={onOpenEntry ? () => onOpenEntry(e.record) : undefined}
                   />
                 ))}
               </View>

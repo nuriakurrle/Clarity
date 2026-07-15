@@ -38,6 +38,7 @@ import {
   valenceToMoodLevel,
 } from '../../theme/moodColors';
 import { weeklyMoodPrompt } from '../../utils/moodPrompts';
+import { isInLastWeek, lastWeekRange } from '../../utils/week';
 import { TypewriterText } from './TypewriterText';
 import { EntryRecord, fetchEntries } from '../../services/api';
 import { PrivacyNote } from '../PrivacyNote';
@@ -73,10 +74,9 @@ const EMPTY_LAYERS: BlobLayer[] = EMPTY_BLOB_COLORS.map((color) => ({
   share: 1 / EMPTY_BLOB_COLORS.length,
 }));
 
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-
 /**
- * Einträge der letzten 7 Tage zu Farbschichten verdichten – pro EINTRAG
+ * Einträge der Vorwoche (Mo–So, gleiches Fenster wie der Digest-Agent) zu
+ * Farbschichten verdichten – pro EINTRAG
  * (nicht pro Tag), damit alle vorkommenden Moods der Woche einfließen und
  * sich nichts über den Tages-Durchschnitt wegmittelt. Anteil = Einträge
  * dieses Moods / alle Einträge der Periode; absteigend sortiert, sodass
@@ -84,11 +84,11 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  */
 function buildLayers(entries: EntryRecord[]): BlobLayer[] {
   const counts = new Map<MoodLevel, number>();
+  const range = lastWeekRange();
   let total = 0;
   for (const e of entries) {
     if (e.valence == null) continue;
-    const ts = Date.parse(`${e.created_at.replace(' ', 'T')}Z`);
-    if (Number.isNaN(ts) || Date.now() - ts > WEEK_MS) continue;
+    if (!isInLastWeek(e.created_at, range)) continue;
     const level = valenceToMoodLevel(e.valence);
     counts.set(level, (counts.get(level) ?? 0) + 1);
     total += 1;
@@ -210,6 +210,8 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
   const drifts = [useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current, useRef(new Animated.Value(0)).current];
   const breath = useRef(new Animated.Value(0)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
+  // Sanftes Auf-und-ab-Wippen des Scroll-Hinweises am unteren Hero-Rand.
+  const bob = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const loops = [
@@ -217,6 +219,7 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
       makeLoop(drifts[1], 5600),
       makeLoop(drifts[2], 6800),
       makeLoop(breath, 4800),
+      makeLoop(bob, 1500),
     ];
     loops.forEach((l) => l.start());
     return () => loops.forEach((l) => l.stop());
@@ -425,7 +428,20 @@ export function MoodMirrorBlob({ onWrite, minHeight }: Props) {
         <Text style={styles.hint}>Tippe, um zu schreiben</Text>
       </View>
 
-      <PrivacyNote />
+      <PrivacyNote style={styles.privacy} />
+
+      {/* Scroll-Hinweis: Der Wochenrückblick liegt unterhalb des
+          bildschirmfüllenden Heros und wird sonst leicht übersehen. */}
+      <Animated.View
+        style={[
+          styles.scrollCue,
+          { transform: [{ translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [0, 5] }) }] },
+        ]}
+        pointerEvents="none"
+      >
+        <Text style={styles.scrollCueText}>Scroll</Text>
+        <Text style={styles.scrollCueArrow}>↓</Text>
+      </Animated.View>
     </View>
   );
 }
@@ -454,7 +470,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
     color: '#000000', // reines Schwarz auf reinem Weiß – maximaler Kontrast
     textTransform: 'uppercase',
-    marginTop: 8,
+    marginTop: 16,
   },
   question: {
     fontFamily: serif,
@@ -462,8 +478,8 @@ const styles = StyleSheet.create({
     lineHeight: 31,
     fontWeight: '600',
     color: '#000000',
-    marginTop: 12,
-    textAlign: 'left',
+    marginTop: 22,
+    textAlign: 'center',
     alignSelf: 'stretch',
   },
   // Blob leicht oberhalb der Mitte zwischen Frage und Hinweis –
@@ -473,6 +489,23 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 13,
     color: colors.textFaint,
-    marginTop: 4,
+    marginTop: 10,
+  },
+  privacy: { marginTop: 14 },
+  scrollCue: { alignItems: 'center', marginTop: 18 },
+  // Gleiche Typo-Sprache wie die Datumszeile oben (Uppercase + Letterspacing),
+  // nur gedämpft – lädt zum Scrollen ein, ohne mit dem Blob zu konkurrieren.
+  scrollCueText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+    color: colors.textMuted,
+  },
+  scrollCueArrow: {
+    fontSize: 15,
+    lineHeight: 18,
+    marginTop: 2,
+    color: colors.textMuted,
   },
 });

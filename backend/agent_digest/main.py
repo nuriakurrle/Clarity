@@ -1,4 +1,4 @@
-"""Clarity Reflection / Digest Agent - Port 8004 - WITH DATABASE
+"""Clarity Reflection / Digest Agent - Port 8004 
 
 Erstellt wöchentliche Einblicke aus Stimmung, Mustern und Entwicklungen.
 
@@ -46,7 +46,7 @@ MODEL = os.getenv("MODEL", "llama3.2:1b")
 @app.on_event("startup")
 async def startup():
     init_db()
-    logger.info("✅ Database initialized")
+    logger.info("Database initialized")
 
 
 # --- Modelle ----------------------------------------------------------------
@@ -57,13 +57,15 @@ class DigestInput(BaseModel):
 
 
 class ReflectInput(BaseModel):
-    """Reflexion aus der DB über die letzten `days` Tage."""
-    days: int = 7
+    """Reflexion über eine abgeschlossene Kalenderwoche.
+
+    `weeks_back=1` = letzte Woche (Mo–So), 2 = die Woche davor usw.
+    """
+    weeks_back: int = 1
 
 
 # --- Ollama-Helfer (lokales LLM) --------------------------------------------
 async def call_ollama(prompt: str, temperature: float = 0.4) -> str:
-    """Schickt einen Prompt an die lokale Ollama-Instanz und gibt den Text zurück."""
     async with httpx.AsyncClient(timeout=90) as client:
         try:
             response = await client.post(
@@ -95,12 +97,46 @@ def extract_json(text: str) -> dict:
 
 
 # --- Kontext aus den Wochendaten --------------------------------------------
-def summarize_mood(sentiments: list) -> str:
-    """Verdichtet die Stimmungsanalysen der Woche zu einem kurzen Text.
+# Fünfstufige Skala – identisch zu valenceToMoodLevel() im Frontend
+# (theme/moodColors.ts). Beide müssen dieselben Grenzen benutzen, sonst
+# widerspricht die Wochen-Ansprache im Blob der Zusammenfassung des Digests.
+MOOD_LABELS = {
+    "great": "sehr gut",
+    "good": "gut",
+    "neutral": "ausgeglichen",
+    "low": "gedrückt",
+    "bad": "schwer",
+}
 
-    Nutzt das erweiterte Sentiment-Schema (valence, intensity, primary_emotion,
-    secondary_emotions).
-    """
+
+def valence_to_level(valence: float) -> str:
+    if valence >= 0.6:
+        return "great"
+    if valence >= 0.2:
+        return "good"
+    if valence >= -0.2:
+        return "neutral"
+    if valence >= -0.6:
+        return "low"
+    return "bad"
+
+
+def dominant_mood(sentiments: list) -> str | None:
+    """Häufigste Stimmungs-Kategorie der Woche – pro Eintrag gezählt, genau wie
+    der Mood-Blob im Frontend. Das ist die Kategorie, die der Nutzer oben auf
+    Home sieht; der Digest-Text darf ihr nicht widersprechen."""
+    counts: dict = {}
+    for s in sentiments:
+        if s.get("valence") is None:
+            continue
+        level = valence_to_level(s["valence"])
+        counts[level] = counts.get(level, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=counts.get)
+
+
+def summarize_mood(sentiments: list) -> str:
     if not sentiments:
         return "Keine Stimmungsdaten vorhanden."
     counts: dict = {}
@@ -141,12 +177,23 @@ def summarize_patterns(patterns: list) -> str:
     return f"Top-Themen: {themes}. Stimmungstrend: {trend}."
 
 
-def build_reflection_prompt(entries_text: str, mood: str, pattern: str) -> str:
+def build_reflection_prompt(
+    entries_text: str, mood: str, pattern: str, level: str | None = None
+) -> str:
+    verdict = (
+        f"""
+GESAMTBILD (gemessen, nicht verhandelbar):
+Die Woche war insgesamt {MOOD_LABELS[level]}. Die meisten Einträge fallen in
+diese Kategorie. Genau dieser Satz steht auch oben auf dem Startbildschirm.
+"""
+        if level
+        else ""
+    )
     return f"""Du bist ein einfühlsamer Reflexions-Begleiter für eine Journaling-App.
-Erstelle eine wöchentliche Reflexion auf Deutsch – basierend auf den Einträgen,
-der Stimmung und den erkannten Mustern der Woche.
+Erstelle eine Reflexion der vergangenen Woche auf Deutsch – basierend auf den
+Einträgen, der Stimmung und den erkannten Mustern dieser Woche.
 
-EINTRÄGE DER WOCHE:
+EINTRÄGE DER VERGANGENEN WOCHE (Mo–So):
 {entries_text}
 
 STIMMUNG:
@@ -154,14 +201,34 @@ STIMMUNG:
 
 MUSTER:
 {pattern}
+{verdict}
+"summary" MUSS zum GESAMTBILD passen und darf ihm nicht widersprechen. War die
+Woche gut, schreib sie nicht als Herausforderung. Einzelne schwere Momente
+gehören in "challenges", nicht in die Zusammenfassung.
+
+"question" ist eine offene Frage zum Weitertragen, die sich konkret auf DIESE
+Woche bezieht – greife ein Thema, eine Person oder einen Moment aus den
+Einträgen auf. Keine allgemeine Floskel.
 
 Antworte AUSSCHLIESSLICH mit JSON in genau diesem Format:
-{{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche"}}"""
+{{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche", "question": "eine offene Frage zu dieser Woche"}}"""
 
 
-def persist_digest(digest_data: dict) -> None:
-    """Speichert eine Reflexion in der weekly_digest-Tabelle (Wochenstart = Montag)."""
-    week_start = (datetime.now() - timedelta(days=datetime.now().weekday())).strftime("%Y-%m-%d")
+def week_window(weeks_back: int = 1) -> tuple[datetime, datetime]:
+    """Montag 00:00 bis (exklusiv) Montag 00:00 der abgeschlossenen Woche.
+
+    weeks_back=1 liefert die *letzte* Woche (Mo–So), nicht die laufende.
+    """
+    today = datetime.now()
+    this_monday = (today - timedelta(days=today.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    start = this_monday - timedelta(weeks=weeks_back)
+    return start, start + timedelta(days=7)
+
+
+def persist_digest(digest_data: dict, week_start_dt: datetime) -> None:
+    week_start = week_start_dt.strftime("%Y-%m-%d")
     save_digest(
         week_start,
         digest_data.get("summary", ""),
@@ -169,11 +236,12 @@ def persist_digest(digest_data: dict) -> None:
         digest_data.get("challenges", []),
         digest_data.get("growth", []),
         digest_data.get("affirmation", ""),
+        digest_data.get("question", ""),
     )
-    logger.info(f"💾 Digest gespeichert (week_start={week_start})")
+    logger.info(f"Digest gespeichert (week_start={week_start})")
 
 
-# --- Endpunkte --------------------------------------------------------------
+# Endpunkte 
 @app.get("/health")
 async def health():
     return {"status": "healthy", "agent": "reflection", "model": MODEL}
@@ -181,48 +249,53 @@ async def health():
 
 @app.post("/reflect")
 async def reflect(input: ReflectInput = ReflectInput()):
-    """Wöchentliche Reflexion aus den in der DB gespeicherten Wochendaten."""
-    since = (datetime.now() - timedelta(days=input.days)).strftime("%Y-%m-%d %H:%M:%S")
-    entries = get_entries_since(since)
+    """Reflexion über die abgeschlossene Vorwoche (Mo–So) aus der DB."""
+    start_dt, end_dt = week_window(input.weeks_back)
+    since = start_dt.strftime("%Y-%m-%d %H:%M:%S")
+    until = end_dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    entries = get_entries_since(since, until)
     if not entries:
         raise HTTPException(status_code=404, detail="Keine Einträge in diesem Zeitraum")
 
-    sentiments = get_sentiments_since(since)
-    patterns = get_patterns_since(since)
+    sentiments = get_sentiments_since(since, until)
+    patterns = get_patterns_since(since, until)
     logger.info(
-        f"🪞 Reflexion über {len(entries)} Einträge, "
-        f"{len(sentiments)} Stimmungen, {len(patterns)} Muster..."
+        f"Reflexion für {start_dt:%Y-%m-%d} bis {end_dt - timedelta(days=1):%Y-%m-%d}: "
+        f"{len(entries)} Einträge, {len(sentiments)} Stimmungen, {len(patterns)} Muster..."
     )
 
     entries_text = "\n---\n".join(e["content"] for e in entries)
+    level = dominant_mood(sentiments)
+    logger.info(f"Dominante Stimmung der Woche: {level or '–'}")
     prompt = build_reflection_prompt(
         entries_text,
         summarize_mood(sentiments),
         summarize_patterns(patterns),
+        level,
     )
 
     raw = await call_ollama(prompt, temperature=0.4)
     digest_data = extract_json(raw)
-    persist_digest(digest_data)
+    persist_digest(digest_data, start_dt)
     return digest_data
 
 
 @app.post("/create-digest")
 async def create_digest(input: DigestInput):
-    """Direkter Aufruf mit fertigen Einträgen (z. B. zum Testen ohne DB-Inhalt)."""
-    logger.info(f"📖 Creating digest for {len(input.entries)} entries...")
+    logger.info(f"Creating digest for {len(input.entries)} entries...")
     entries_text = "\n---\n".join(input.entries)
     prompt = build_reflection_prompt(entries_text, "Keine Stimmungsdaten.", "Keine Muster.")
 
     raw = await call_ollama(prompt, temperature=0.4)
     digest_data = extract_json(raw)
-    persist_digest(digest_data)
+    persist_digest(digest_data, week_window(1)[0])
     return digest_data
 
 
 @app.get("/digest/latest")
 async def latest_digest():
-    """Letzte gespeicherte Reflexion aus SQLite (kein LLM-Aufruf)."""
+
     digest = get_latest_digest()
     if digest is None:
         raise HTTPException(status_code=404, detail="Noch keine Reflexion vorhanden")

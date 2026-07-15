@@ -171,8 +171,8 @@ sie automatisch – ohne weitere Änderung hier.
 ```
 backend/agent_prompt/
 ├── main.py                   # FastAPI entry point
-├── Dockerfile                # Docker configuration
-├── requirements.txt          # Python dependencies
+│                             # (Dockerfile & requirements.txt sind für alle
+│                             #  Agenten gemeinsam unter backend/)
 │
 ├── tools/
 │   ├── prompt_library.py     # All prompt templates (DE/EN) + Offline-Auswahl
@@ -201,8 +201,8 @@ docker compose up -d ollama agent_prompt
 
 ### Development Server
 ```bash
+pip install -r backend/requirements.txt
 cd backend/agent_prompt
-pip install -r requirements.txt
 python main.py
 ```
 

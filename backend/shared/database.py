@@ -1,18 +1,32 @@
 """SQLite Database for Clarity - Shared by all agents"""
+import os
 import sqlite3
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
+from zoneinfo import ZoneInfo
 
 DB_PATH = Path("/data/clarity.db")
+
+# created_at liegt in UTC (Container-Zeit); für die Tageszuordnung im
+# Stimmungsverlauf zählt aber der Kalendertag des Nutzers.
+APP_TZ = ZoneInfo(os.getenv("APP_TZ", "Europe/Berlin"))
 
 def get_db_connection():
     """Create or get SQLite connection"""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    # timeout: bei parallelem Schreibzugriff (mehrere Agent-Prozesse) warten
+    # statt sofort "database is locked" zu werfen. Bewusst kein WAL-Modus:
+    # dessen Shared-Memory ist über den Docker-Bind-Mount nicht verlässlich.
+    conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     return conn
+
+def _entry_local_date(created_at: str) -> str:
+    """UTC-Zeitstempel ("YYYY-MM-DD HH:MM:SS") → lokales Datum (ISO) des Eintrags."""
+    dt = datetime.fromisoformat(created_at).replace(tzinfo=timezone.utc)
+    return dt.astimezone(APP_TZ).date().isoformat()
 
 def init_db():
     """Initialize database schema"""
@@ -110,6 +124,17 @@ def init_db():
         )
     """)
 
+    # Images attached to journal entries (files live in /data/images)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS entry_images (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id INTEGER NOT NULL,
+            filename TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(entry_id) REFERENCES entries(id)
+        )
+    """)
+
     # Weekly Digest
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS weekly_digest (
@@ -124,8 +149,42 @@ def init_db():
         )
     """)
 
+    # Migration: Der Digest liefert inzwischen auch eine Reflexionsfrage aus
+    # den Wochendaten. Spalte nur ergänzen, wenn sie fehlt -> bricht keine
+    # bestehende DB; Altdaten haben question = NULL (Frontend zeigt dann den
+    # neutralen Standardsatz).
+    existing_digest_cols = {
+        row[1] for row in cursor.execute("PRAGMA table_info(weekly_digest)").fetchall()
+    }
+    if "question" not in existing_digest_cols:
+        cursor.execute("ALTER TABLE weekly_digest ADD COLUMN question TEXT")
+
+    _repair_mood_profile(cursor)
+
     conn.commit()
     conn.close()
+
+def _repair_mood_profile(cursor) -> None:
+    """Bestandsdaten geraderücken (idempotent, läuft bei jedem Start):
+    Duplikate aus Nachanalysen entfernen (neueste gewinnt), verwaiste Zeilen
+    löschen und das Datum auf den Kalendertag des Eintrags setzen."""
+    cursor.execute("""
+        DELETE FROM mood_profile
+        WHERE id NOT IN (SELECT MAX(id) FROM mood_profile GROUP BY entry_id)
+    """)
+    cursor.execute("""
+        DELETE FROM mood_profile
+        WHERE entry_id IS NULL OR entry_id NOT IN (SELECT id FROM entries)
+    """)
+    rows = cursor.execute("""
+        SELECT m.id, e.created_at FROM mood_profile m
+        JOIN entries e ON e.id = m.entry_id
+    """).fetchall()
+    for r in rows:
+        cursor.execute(
+            "UPDATE mood_profile SET date = ? WHERE id = ? AND date != ?",
+            (_entry_local_date(r["created_at"]), r["id"], _entry_local_date(r["created_at"])),
+        )
 
 def save_entry(content: str) -> int:
     """Save new journal entry"""
@@ -136,6 +195,67 @@ def save_entry(content: str) -> int:
     entry_id = cursor.lastrowid
     conn.close()
     return entry_id
+
+def update_entry_content(entry_id: int, content: str) -> bool:
+    """Update the text of an existing entry. Returns False if it doesn't exist."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE entries SET content = ? WHERE id = ?", (content, entry_id))
+    conn.commit()
+    updated = cursor.rowcount > 0
+    conn.close()
+    return updated
+
+def delete_entry(entry_id: int) -> bool:
+    """Delete an entry and everything derived from it (analysis, mood
+    profile, generated prompts, image records). Returns False if the entry
+    doesn't exist. Image FILES must be removed by the caller beforehand
+    (see get_entry_images)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM sentiment_analysis WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM mood_profile WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM generated_prompts WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM entry_images WHERE entry_id = ?", (entry_id,))
+    cursor.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+def save_entry_image(entry_id: int, filename: str) -> None:
+    """Attach an image (stored under /data/images) to an entry."""
+    conn = get_db_connection()
+    conn.execute(
+        "INSERT INTO entry_images (entry_id, filename) VALUES (?, ?)",
+        (entry_id, filename),
+    )
+    conn.commit()
+    conn.close()
+
+def delete_entry_image(entry_id: int, filename: str) -> bool:
+    """Detach one image from an entry (DB row only – the caller removes the
+    file). Returns False if no such image exists for this entry."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "DELETE FROM entry_images WHERE entry_id = ? AND filename = ?",
+        (entry_id, filename),
+    )
+    conn.commit()
+    deleted = cursor.rowcount > 0
+    conn.close()
+    return deleted
+
+def get_entry_images(entry_id: int) -> list:
+    """Filenames of all images attached to an entry (oldest first)."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT filename FROM entry_images WHERE entry_id = ? ORDER BY id",
+        (entry_id,),
+    ).fetchall()
+    conn.close()
+    return [row["filename"] for row in rows]
 
 def save_sentiment(
     entry_id: int, 
@@ -172,17 +292,22 @@ def save_mood_profile(entry_id: int, sentiment_data: Dict[str, Any]) -> None:
     """Save mood profile entry for longitudinal tracking"""
     conn = get_db_connection()
     cursor = conn.cursor()
-    
-    today = datetime.now().date()
+
+    # Datum des EINTRAGS, nicht der Analyse – sonst wandert die Stimmung beim
+    # Editieren/Nachanalysieren auf den falschen Tag.
+    row = cursor.execute("SELECT created_at FROM entries WHERE id = ?", (entry_id,)).fetchone()
+    entry_date = _entry_local_date(row["created_at"]) if row else datetime.now(APP_TZ).date().isoformat()
     mood_shift = "stable"  # Default, can be computed from trend analysis
-    
+
+    # Upsert: genau eine Zeile pro Eintrag, sonst zählt der Tagesdurchschnitt doppelt.
+    cursor.execute("DELETE FROM mood_profile WHERE entry_id = ?", (entry_id,))
     cursor.execute(
         """INSERT INTO mood_profile
            (entry_id, date, daily_valence, daily_intensity, dominant_emotions, mood_shift)
            VALUES (?, ?, ?, ?, ?, ?)""",
         (
             entry_id,
-            today,
+            entry_date,
             sentiment_data.get("valence", 0),
             sentiment_data.get("intensity", 50),
             json.dumps([
@@ -440,42 +565,48 @@ def save_prompts(entry_id: int, prompts: list) -> None:
     conn.close()
 
 def save_digest(week_start: str, summary: str, highlights: list,
-                challenges: list, growth: list, affirmation: str) -> None:
+                challenges: list, growth: list, affirmation: str,
+                question: str = "") -> None:
     """Save weekly digest"""
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
         """INSERT INTO weekly_digest
-           (week_start, summary, highlights, challenges, growth, affirmation)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           (week_start, summary, highlights, challenges, growth, affirmation, question)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (week_start, summary, json.dumps(highlights), json.dumps(challenges),
-         json.dumps(growth), affirmation)
+         json.dumps(growth), affirmation, question)
     )
     conn.commit()
     conn.close()
 
 # --- Read helpers (used by the reflection/digest agent) ---------------------
 
-def get_entries_since(since: str) -> list:
-    """Return journal entries created on/after `since` (oldest first)."""
+def get_entries_since(since: str, until: str | None = None) -> list:
+    """Return journal entries created on/after `since` (oldest first).
+
+    `until` is an exclusive upper bound, used to select a closed week window.
+    """
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT id, content, created_at FROM entries
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
-def get_sentiments_since(since: str) -> list:
+def get_sentiments_since(since: str, until: str | None = None) -> list:
     """Return sentiment analyses on/after `since`, with secondary_emotions decoded."""
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT sentiment, valence, intensity, tone, primary_emotion,
                   secondary_emotions, confidence, created_at
            FROM sentiment_analysis
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     result = []
@@ -487,13 +618,14 @@ def get_sentiments_since(since: str) -> list:
         result.append(item)
     return result
 
-def get_patterns_since(since: str) -> list:
+def get_patterns_since(since: str, until: str | None = None) -> list:
     """Return pattern detections on/after `since`, with JSON fields decoded."""
     conn = get_db_connection()
     rows = conn.execute(
         """SELECT top_themes, mood_trend, triggers, created_at FROM pattern_detection
-           WHERE created_at >= ? ORDER BY created_at""",
-        (since,)
+           WHERE created_at >= ? AND (? IS NULL OR created_at < ?)
+           ORDER BY created_at""",
+        (since, until, until)
     ).fetchall()
     conn.close()
     result = []
@@ -505,7 +637,8 @@ def get_patterns_since(since: str) -> list:
     return result
 
 def get_entries_with_sentiment() -> list:
-    """Return all journal entries (newest first) with their latest sentiment.
+    """Return all journal entries (newest first) with their latest sentiment
+    and the filenames of attached images.
 
     Used by the sentiment agent's /entries endpoint (history & search in the app).
     """
@@ -519,8 +652,21 @@ def get_entries_with_sentiment() -> list:
            )
            ORDER BY e.created_at DESC, e.id DESC"""
     ).fetchall()
+    image_rows = conn.execute(
+        "SELECT entry_id, filename FROM entry_images ORDER BY id"
+    ).fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+
+    images_by_entry: dict = {}
+    for row in image_rows:
+        images_by_entry.setdefault(row["entry_id"], []).append(row["filename"])
+
+    entries = []
+    for row in rows:
+        entry = dict(row)
+        entry["images"] = images_by_entry.get(entry["id"], [])
+        entries.append(entry)
+    return entries
 
 def get_latest_digest() -> dict | None:
     """Return the most recently created weekly digest, with JSON fields decoded."""

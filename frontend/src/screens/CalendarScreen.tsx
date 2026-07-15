@@ -35,7 +35,6 @@ import {
   WeekDay,
   buildWeekTotals,
 } from '../components/calendar';
-import { MOCK_WEEK } from '../services/mockCalendarData';
 import { SegmentedControl, Tag } from '../components/insight';
 import {
   DailyMood,
@@ -116,7 +115,12 @@ function buildDistribution(dayEntries: EntryRecord[]): DayMood[] {
     .sort((a, b) => b.percent - a.percent);
 }
 
-export default function CalendarScreen() {
+type Props = {
+  /** Öffnet die Vollansicht eines angetippten Eintrags (siehe App.tsx). */
+  onOpenEntry?: (entry: EntryRecord) => void;
+};
+
+export default function CalendarScreen({ onOpenEntry }: Props) {
   const today = new Date();
   const todayKey = toKey(today);
 
@@ -213,25 +217,9 @@ export default function CalendarScreen() {
     return rec;
   }, [dayMap, year, month]);
 
-  // --- Mock-Fallback (PRO TAG) ---------------------------------------------
-  // TODO: Beispiel-Verteilungen aus mockCalendarData für Tage der aktuellen
-  // Woche OHNE echte Einträge – Tage mit echten Daten zeigen immer die echten.
-  // Im Detailbereich sind Mock-Tage als „Beispieldaten" gekennzeichnet.
-  const mockByDate = useMemo(() => {
-    const map = new Map<string, DayMood[]>();
-    if (loading) return map;
-    const monday = mondayOf(today);
-    for (const mock of MOCK_WEEK) {
-      const d = new Date(monday);
-      d.setDate(d.getDate() + mock.weekdayOffset);
-      const key = toKey(d);
-      if (!dayMap.has(key)) map.set(key, mock.moods);
-    }
-    return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, dayMap]);
-
   // --- Wochenansicht (Mo–Fr, wie im "Pause"-Referenzlayout) ----------------
+  // Ausschliesslich echte Einträge: Tage ohne Eintrag bleiben leer, statt eine
+  // Stimmung zu erfinden, die es nie gab.
   const weekDays: WeekDay[] = useMemo(() => {
     return Array.from({ length: 5 }, (_, i) => {
       const d = new Date(weekStart);
@@ -242,11 +230,14 @@ export default function CalendarScreen() {
         date: key,
         day: d.getDate(),
         label: WEEKDAYS[i],
-        moods: data?.moods ?? mockByDate.get(key) ?? [],
+        moods: data?.moods ?? [],
         isToday: key === todayKey,
       };
     });
-  }, [weekStart, dayMap, mockByDate, todayKey]);
+  }, [weekStart, dayMap, todayKey]);
+
+  /** Keine Kleckse zeichnen, wenn in der Woche kein einziger Eintrag liegt. */
+  const weekHasData = weekDays.some((d) => d.moods.length > 0);
 
   const selectDate = (date: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -314,10 +305,7 @@ export default function CalendarScreen() {
 
   // --- Detailbereich -------------------------------------------------------
   const selectedData = selectedDate ? dayMap.get(selectedDate) : undefined;
-  // Mock-Tage haben keine Einträge, aber eine Verteilung fürs Detail.
-  const selectedMockMoods =
-    !selectedData && selectedDate ? mockByDate.get(selectedDate) : undefined;
-  const selectedMoods = selectedData?.moods ?? selectedMockMoods ?? [];
+  const selectedMoods = selectedData?.moods ?? [];
   const mainMoods = selectedMoods.filter((m) => m.percent >= MIN_PERCENT);
   // Anteile unter der Bubble-Schwelle: gesammelt im Detail statt als Bubble.
   const minorMoods = selectedMoods.filter((m) => m.percent < MIN_PERCENT);
@@ -383,12 +371,16 @@ export default function CalendarScreen() {
               }}
               today={todayDayInMonth}
             />
-          ) : (
+          ) : weekHasData ? (
             <WeekBubbles
               // key: bei Wochenwechsel remounten → Pop-in-Animation läuft erneut
               key={toKey(weekStart)}
               days={weekDays}
             />
+          ) : (
+            <Text style={styles.hint}>
+              Keine Einträge in dieser Woche – blättere zurück oder schreib etwas.
+            </Text>
           )}
         </View>
 
@@ -479,11 +471,6 @@ export default function CalendarScreen() {
                     ))}
                   </View>
                 ) : null}
-                {selectedMockMoods ? (
-                  <Text style={styles.hint}>
-                    Beispieldaten – dein Kalender füllt sich mit echten Einträgen.
-                  </Text>
-                ) : null}
                 {selectedData?.entries.map((e) => {
                   const local = parseEntryDate(e.created_at);
                   const time = local
@@ -493,7 +480,14 @@ export default function CalendarScreen() {
                     e.content.length > 140
                       ? `${e.content.slice(0, 140).trimEnd()}…`
                       : e.content;
-                  return <EntryCard key={e.id} time={time} text={text} />;
+                  return (
+                    <EntryCard
+                      key={e.id}
+                      time={time}
+                      text={text}
+                      onPress={onOpenEntry ? () => onOpenEntry(e) : undefined}
+                    />
+                  );
                 })}
               </View>
             ) : (

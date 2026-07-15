@@ -10,12 +10,14 @@
 import Constants from 'expo-constants';
 
 // Bewusst nur die Agenten, deren Endpoints wir aktuell nutzen:
-// Sentiment (8001), Pattern (8002), Prompt (8003) und Digest (8004).
+// Sentiment (8001), Pattern (8002), Prompt (8003), Digest (8004)
+// und Transcribe (8005, Whisper Speech-to-Text).
 const PORTS = {
   sentiment: 8001,
   pattern: 8002,
   prompt: 8003,
   digest: 8004,
+  transcribe: 8005,
 } as const;
 
 type AgentName = keyof typeof PORTS;
@@ -109,7 +111,14 @@ export type EntryRecord = {
   sentiment: 'positive' | 'neutral' | 'negative' | null;
   valence: number | null;
   primary_emotion: string | null;
+  /** Dateinamen angehängter Bilder – anzeigen via entryImageUrl(). */
+  images?: string[];
 };
+
+/** Absolute URL eines Eintrag-Bildes (GET /images/{filename}, Sentiment-Agent). */
+export function entryImageUrl(filename: string): string {
+  return `${baseUrl('sentiment')}/images/${filename}`;
+}
 
 export type Digest = {
   week_start?: string;
@@ -118,6 +127,8 @@ export type Digest = {
   challenges: string[];
   growth: string[];
   affirmation: string;
+  /** Reflexionsfrage aus den Wochendaten; fehlt bei Digests vor der Migration. */
+  question?: string;
 };
 
 /** Ergebnis des Pattern-Agents (wiederkehrende Muster über mehrere Einträge). */
@@ -152,6 +163,15 @@ export type KeywordsResult = {
   keywords: KeywordItem[];
 };
 
+/** Ergebnis des Transcribe-Agents (Whisper Speech-to-Text). */
+export type TranscriptionResult = {
+  text: string;
+  /** Automatisch erkannte Sprache ("de", "en", …). */
+  language: string;
+  language_probability: number;
+  duration: number;
+};
+
 /** Ergebnis des Prompt-Agents (reflektive Fragen). */
 export type PromptResponse = {
   question: string;
@@ -179,6 +199,40 @@ export function analyzeEntry(text: string, selfReportedMood?: string): Promise<A
   );
 }
 
+/** Aktualisiert den Text eines bestehenden Eintrags (Sentiment-Agent).
+ *  Die Sentiment-Analyse läuft danach im Hintergrund neu. */
+export function updateEntry(entryId: number, text: string): Promise<AnalyzeResult> {
+  return request<AnalyzeResult>(
+    'sentiment',
+    `/entries/${entryId}`,
+    { method: 'PUT', body: JSON.stringify({ text }) },
+    30000,
+  );
+}
+
+/** Entfernt ein einzelnes Bild eines Eintrags (DB-Zeile + Datei, Sentiment-Agent). */
+export function deleteEntryImage(
+  entryId: number,
+  filename: string,
+): Promise<{ entry_id: number; filename: string; status: string }> {
+  return request(
+    'sentiment',
+    `/entries/${entryId}/images/${encodeURIComponent(filename)}`,
+    { method: 'DELETE' },
+    30000,
+  );
+}
+
+/** Löscht einen Eintrag samt Analyse-Daten endgültig (Sentiment-Agent). */
+export function deleteEntry(entryId: number): Promise<{ entry_id: number; status: string }> {
+  return request<{ entry_id: number; status: string }>(
+    'sentiment',
+    `/entries/${entryId}`,
+    { method: 'DELETE' },
+    30000,
+  );
+}
+
 /** Longitudinales Stimmungsprofil der letzten `days` Tage (Sentiment-Agent). */
 export function fetchMoodProfile(days = 7): Promise<MoodProfile> {
   return request<MoodProfile>('sentiment', `/mood-profile?days=${days}`);
@@ -194,15 +248,36 @@ export function fetchLatestDigest(): Promise<Digest> {
   return request<Digest>('digest', '/digest/latest');
 }
 
+/**
+ * Wochenrückblick neu erzeugen (Digest-Agent, POST /reflect). Läuft über ein
+ * lokales LLM und braucht deshalb ein paar Sekunden. `weeks_back: 1` = die
+ * abgeschlossene Vorwoche. 404 = keine Einträge in dem Zeitraum.
+ */
+export function createReflection(weeksBack = 1): Promise<Digest> {
+  return request<Digest>(
+    'digest',
+    '/reflect',
+    { method: 'POST', body: JSON.stringify({ weeks_back: weeksBack }) },
+    // Das Modell schreibt mehrere Absätze – der 15-s-Standard reicht dafür nicht.
+    120000,
+  );
+}
+
 /** Zuletzt erkannte wiederkehrende Muster & Trigger (Pattern-Agent). */
 export function fetchLatestPatterns(): Promise<PatternResult> {
   return request<PatternResult>('pattern', '/patterns/latest');
 }
 
 /** Meistgenutzte Schlagwörter der letzten `days` Tage inkl. Stimmungswert
- *  (Sentiment-Agent, GET /keywords). Deterministisch – kommt sofort, kein LLM. */
-export function fetchKeywords(days = 30, limit = 10): Promise<KeywordsResult> {
-  return request<KeywordsResult>('sentiment', `/keywords?days=${days}&limit=${limit}`);
+ *  (Sentiment-Agent, GET /keywords). Deterministisch – kommt sofort, kein LLM.
+ *  `since` (Date) gewinnt vor `days`: zählt dann ab diesem Zeitpunkt statt
+ *  rollierend – für Kalender-Fenster wie „aktuelle Woche ab Montag". */
+export function fetchKeywords(days = 30, limit = 10, since?: Date): Promise<KeywordsResult> {
+  // created_at in der DB ist UTC "YYYY-MM-DD HH:MM:SS" – gleiches Format senden.
+  const sinceParam = since
+    ? `&since=${encodeURIComponent(since.toISOString().slice(0, 19).replace('T', ' '))}`
+    : '';
+  return request<KeywordsResult>('sentiment', `/keywords?days=${days}&limit=${limit}${sinceParam}`);
 }
 
 /** Stößt eine Musteranalyse über die letzten `days` Tage an (Pattern-Agent).
@@ -216,6 +291,104 @@ export function detectPatterns(days = 7): Promise<PatternResult> {
     { method: 'POST', body: JSON.stringify({ days }) },
     300000,
   );
+}
+
+/** Transkribiert eine Audio-Aufnahme lokal per Whisper (Transcribe-Agent).
+ *  Die Sprache (Deutsch/Englisch) wird automatisch erkannt. Multipart-Upload,
+ *  deshalb nicht über den JSON-`request`-Helper: Der Browser/RN setzt den
+ *  Content-Type mit Boundary selbst. Native schickt die Datei-URI direkt,
+ *  im Web wird die Blob-URL der MediaRecorder-Aufnahme erst geladen. */
+/** Nativer Datei-Upload über React Natives XMLHttpRequest (Multipart, Feld "file").
+ *  Grund statt fetch/expo-file-system: `expo/fetch` (globales fetch) akzeptiert
+ *  kein { uri }-FormData-Teil ("Unsupported FormDataPart implementation") und
+ *  expo-file-system darf in Expo Go fremde Cache-Ordner (expo-audio-Aufnahmen,
+ *  Galerie-Kopien) nicht lesen. RNs eigener Netzwerk-Stack liest die Datei
+ *  nativ und kennt beide Einschränkungen nicht. */
+function uploadFileViaXhr<T>(
+  url: string,
+  uri: string,
+  mimePrefix: 'audio' | 'image',
+  timeoutMs = 300000,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = timeoutMs;
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as T);
+        } catch {
+          reject(new Error(`Ungültige Antwort von ${url}`));
+        }
+      } else {
+        reject(new Error(`HTTP ${xhr.status} von ${url}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error(`Netzwerkfehler beim Upload (${url})`));
+    xhr.ontimeout = () => reject(new Error(`Zeitüberschreitung beim Upload (${url})`));
+
+    const ext = uri.split('.').pop()?.toLowerCase() ?? (mimePrefix === 'audio' ? 'm4a' : 'jpg');
+    const form = new FormData();
+    form.append('file', {
+      uri,
+      name: `upload.${ext}`,
+      type: `${mimePrefix}/${ext}`,
+    } as unknown as Blob);
+    xhr.send(form);
+  });
+}
+
+/** Blob-/Data-URL (Web) als Multipart-Datei hochladen. */
+async function uploadBlobUri<T>(url: string, uri: string, fallbackType: string): Promise<T> {
+  const blob = await (await fetch(uri)).blob();
+  const type = blob.type || fallbackType;
+  const ext = type.split('/')[1]?.split(';')[0] ?? 'bin';
+  const form = new FormData();
+  form.append('file', new File([blob], `upload.${ext}`, { type }));
+  const res = await fetch(url, { method: 'POST', body: form });
+  if (!res.ok) throw new Error(`HTTP ${res.status} von ${url}`);
+  return (await res.json()) as T;
+}
+
+/** Fehler um die Ziel-URL anreichern – "Network request failed" allein
+ *  verrät nicht, welchen Host die App erreichen wollte. */
+function withUrlInfo(e: unknown, url: string): Error {
+  if (e instanceof Error && !e.message.includes(url)) {
+    return new Error(`${e.message} (${url})`);
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
+
+export async function transcribeAudio(uri: string): Promise<TranscriptionResult> {
+  const url = `${baseUrl('transcribe')}/transcribe`;
+  try {
+    if (uri.startsWith('blob:') || uri.startsWith('data:')) {
+      // Web: MediaRecorder liefert eine Blob-URL (webm/mp4 je nach Browser)
+      return await uploadBlobUri<TranscriptionResult>(url, uri, 'audio/webm');
+    }
+    return await uploadFileViaXhr<TranscriptionResult>(url, uri, 'audio');
+  } catch (e) {
+    throw withUrlInfo(e, url);
+  }
+}
+
+/** Hängt ein Bild an einen Eintrag an (Sentiment-Agent, Multipart-Upload).
+ *  Die Datei landet im Backend unter /data/images, der Dateiname in der DB. */
+export async function uploadEntryImage(
+  entryId: number,
+  uri: string,
+): Promise<{ entry_id: number; filename: string }> {
+  const url = `${baseUrl('sentiment')}/entries/${entryId}/images`;
+  try {
+    if (uri.startsWith('blob:') || uri.startsWith('data:')) {
+      // Web: expo-image-picker liefert Blob-/Data-URLs
+      return await uploadBlobUri(url, uri, 'image/jpeg');
+    }
+    return await uploadFileViaXhr(url, uri, 'image', 60000);
+  } catch (e) {
+    throw withUrlInfo(e, url);
+  }
 }
 
 /** Generiert eine reflektive Frage basierend auf dem Journal-Text (Prompt-Agent).

@@ -31,8 +31,10 @@ import { colors } from '../theme/colors';
 type Range = 'Woche' | 'Monat' | 'Jahr';
 
 const RANGES: readonly Range[] = ['Woche', 'Monat', 'Jahr'];
-const RANGE_DAYS: Record<Range, number> = { Woche: 7, Monat: 30, Jahr: 365 };
-const WEEKDAY_LABELS = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+// Monat: 31, damit das Profil-Fenster auch am 31. den ganzen Monat abdeckt
+const RANGE_DAYS: Record<Range, number> = { Woche: 7, Monat: 31, Jahr: 365 };
+// Mo-first: Index 0 = Montag (Zuordnung via (getDay() + 6) % 7)
+const WEEKDAY_LABELS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const MONTH_LABELS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -63,12 +65,26 @@ function calcStreak(localDates: string[]): number {
   return streak;
 }
 
-/** Kennzahlen (Einträge, Wörter, Serie) aus den Einträgen im Zeitraum. */
+/**
+ * Beginn des KALENDER-Zeitraums (lokale Zeit): Woche = Montag 00:00,
+ * Monat = 1. des Monats, Jahr = 1. Januar. Chart, Kennzahlen und Key Themes
+ * nutzen dasselbe Fenster – nichts rechnet mehr rollierend.
+ */
+function rangeStart(range: Range, now = new Date()): Date {
+  if (range === 'Woche') {
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    monday.setDate(monday.getDate() - ((now.getDay() + 6) % 7));
+    return monday;
+  }
+  if (range === 'Monat') return new Date(now.getFullYear(), now.getMonth(), 1);
+  return new Date(now.getFullYear(), 0, 1);
+}
+
+/** Kennzahlen (Einträge, Wörter, Serie) aus den Einträgen ab `cutoff` (ms). */
 function computeStats(
   entries: { content: string; created_at: string }[],
-  days: number,
+  cutoff: number,
 ): { entryCount: number; wordCount: number; streak: number } {
-  const cutoff = Date.now() - days * DAY_MS;
   const inRange = entries.filter((e) => {
     const ms = parseUtc(e.created_at);
     return !Number.isNaN(ms) && ms >= cutoff;
@@ -81,38 +97,105 @@ function computeStats(
   return { entryCount: inRange.length, wordCount, streak };
 }
 
+/** Chart-Daten: Punkte + Indizes interpolierter Positionen (ohne sichtbaren Dot). */
+type ChartData = { points: MoodPoint[]; hiddenDots: number[] };
+
+/**
+ * Lückenlose Serie über [first..last] aufspannen: Positionen mit bekanntem Wert
+ * bekommen einen Punkt, Lücken werden linear interpoliert bzw. vor der ersten/
+ * nach der letzten bekannten Position flach weitergezogen (ohne sichtbaren Dot).
+ */
+function fillSeries(
+  byIndex: Map<number, number>,
+  first: number,
+  last: number,
+  labelFor: (index: number) => string,
+): ChartData {
+  const known = [...byIndex.keys()].sort((a, b) => a - b);
+  const points: MoodPoint[] = [];
+  const hiddenDots: number[] = [];
+  for (let i = first; i <= last; i++) {
+    let valence: number;
+    const value = byIndex.get(i);
+    if (value != null) {
+      valence = value;
+    } else {
+      hiddenDots.push(i - first);
+      const prev = [...known].reverse().find((k) => k < i);
+      const next = known.find((k) => k > i);
+      if (prev != null && next != null) {
+        const t = (i - prev) / (next - prev);
+        valence = byIndex.get(prev)! + t * (byIndex.get(next)! - byIndex.get(prev)!);
+      } else {
+        valence = byIndex.get((prev ?? next)!)!;
+      }
+    }
+    points.push({ label: labelFor(i), valence });
+  }
+  return { points, hiddenDots };
+}
+
 /** Tages-Stimmungen des Agents in Chart-Punkte je Zeitraum umrechnen. */
-function buildMoodPoints(profile: MoodProfile, range: Range): MoodPoint[] {
+function buildMoodPoints(profile: MoodProfile, range: Range): ChartData {
   const days = profile.mood_profile.daily_breakdown; // aufsteigend nach Datum
-  if (days.length === 0) return [];
+  if (days.length === 0) return { points: [], hiddenDots: [] };
+  const now = new Date();
 
   if (range === 'Jahr') {
-    // Nach Monat bündeln, damit die Linie nicht überläuft.
-    const buckets = new Map<string, { sum: number; n: number; month: number }>();
+    // Das AKTUELLE Kalenderjahr: die X-Achse spannt immer Jan–Dez. Alle zwölf
+    // Monatsnamen überlappen auf Handybreite, darum Quartalsmarken plus
+    // Endmarke: Jan · Apr · Jul · Okt · Dez. Monate ohne Eintrag werden wie in
+    // der Monatsansicht interpoliert, ohne sichtbaren Punkt.
+    const yearPrefix = `${now.getFullYear()}-`;
+    const buckets = new Map<number, { sum: number; n: number }>();
     for (const d of days) {
-      const key = d.date.slice(0, 7);
+      if (!d.date.startsWith(yearPrefix)) continue;
       const month = parseInt(d.date.slice(5, 7), 10) - 1;
-      const b = buckets.get(key) ?? { sum: 0, n: 0, month };
+      const b = buckets.get(month) ?? { sum: 0, n: 0 };
       b.sum += d.average_valence;
       b.n += 1;
-      buckets.set(key, b);
+      buckets.set(month, b);
     }
-    return [...buckets.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, b]) => ({ label: MONTH_LABELS[b.month], valence: b.sum / b.n }));
+    if (buckets.size === 0) return { points: [], hiddenDots: [] };
+    const byMonth = new Map([...buckets].map(([m, b]) => [m, b.sum / b.n] as const));
+    const labelMonths = new Set([0, 3, 6, 9, 11]);
+    return fillSeries(byMonth, 0, 11, (m) => (labelMonths.has(m) ? MONTH_LABELS[m] : ''));
   }
 
   if (range === 'Woche') {
-    return days.map((d) => ({
-      label: WEEKDAY_LABELS[new Date(`${d.date}T12:00:00`).getDay()],
-      valence: d.average_valence,
-    }));
+    // Die AKTUELLE Kalenderwoche: die X-Achse spannt immer Mo–So. Tage ohne
+    // Eintrag werden interpoliert und zeigen keinen Punkt.
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    const mondayMs = new Date(`${localIso(monday)}T12:00:00`).getTime();
+    const byDay = new Map<number, number>();
+    for (const d of days) {
+      const idx = Math.round(
+        (new Date(`${d.date}T12:00:00`).getTime() - mondayMs) / DAY_MS,
+      );
+      if (idx >= 0 && idx <= 6) byDay.set(idx, d.average_valence);
+    }
+    if (byDay.size === 0) return { points: [], hiddenDots: [] };
+    return fillSeries(byDay, 0, 6, (i) => WEEKDAY_LABELS[i]);
   }
 
-  return days.map((d) => ({
-    label: `${parseInt(d.date.slice(8, 10), 10)}.`,
-    valence: d.average_valence,
-  }));
+  // Monat: der AKTUELLE Kalendermonat, die X-Achse spannt IMMER den ganzen
+  // Monat (1. bis Monatsende) – mit Marken im Wochenraster „1. · 8. · 15. ·
+  // 22. · 29.", also gleichmäßig alle 7 Tage. Tage ohne Eintrag werden
+  // interpoliert und zeigen keinen Punkt – Punkte nur an Tagen mit Eintrag.
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const prefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-`;
+  const byDay = new Map<number, number>();
+  for (const d of days) {
+    if (d.date.startsWith(prefix)) {
+      byDay.set(parseInt(d.date.slice(8, 10), 10), d.average_valence);
+    }
+  }
+  if (byDay.size === 0) return { points: [], hiddenDots: [] };
+
+  // Wochenraster: alle 7 Tage eine Marke (im Februar entfällt die 29 automatisch)
+  const labelDays = new Set([1, 8, 15, 22, 29].filter((d) => d <= lastDay));
+  return fillSeries(byDay, 1, lastDay, (d) => (labelDays.has(d) ? `${d}.` : ''));
 }
 
 // --- Screen -----------------------------------------------------------------
@@ -132,12 +215,15 @@ export default function InsightScreen() {
     setError(false);
 
     const days = RANGE_DAYS[range];
-    Promise.all([fetchMoodProfile(days), fetchKeywords(days, 10), fetchEntries()])
+    // Kalender-Fenster (seit Montag / Monatsersten / 1. Januar) für Keywords
+    // und Kennzahlen – das Profil holt großzügig `days` und die Chart filtert.
+    const start = rangeStart(range);
+    Promise.all([fetchMoodProfile(days), fetchKeywords(days, 10, start), fetchEntries()])
       .then(([prof, kw, entriesRes]) => {
         if (cancelled) return;
         setProfile(prof);
         setKeywords(kw.keywords);
-        setStats(computeStats(entriesRes.entries ?? [], days));
+        setStats(computeStats(entriesRes.entries ?? [], start.getTime()));
       })
       .catch(() => {
         if (!cancelled) setError(true);
@@ -151,7 +237,9 @@ export default function InsightScreen() {
     };
   }, [range]);
 
-  const points = profile ? buildMoodPoints(profile, range) : [];
+  const { points, hiddenDots } = profile
+    ? buildMoodPoints(profile, range)
+    : { points: [], hiddenDots: [] };
 
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
@@ -184,7 +272,7 @@ export default function InsightScreen() {
               Backend nicht erreichbar. Läuft „docker compose up" und bist du im selben WLAN?
             </Text>
           ) : points.length > 0 ? (
-            <MoodLineChart data={points} />
+            <MoodLineChart data={points} hideDotsAtIndex={hiddenDots} />
           ) : (
             <Text style={styles.hint}>
               Noch keine Einträge in diesem Zeitraum – schreib deinen ersten!

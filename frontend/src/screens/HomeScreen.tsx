@@ -3,9 +3,12 @@
  *
  * Füllt die drei Abschnitte mit Inhalten aus dem Backend:
  *   - Tonverlauf                ← Digest-Agent (Zusammenfassung der Woche)
- *   - Wiederkehrende Themen     ← Digest-Agent (Highlights + Challenges)
- *   - Eine Frage zum Weitertragen ← lokaler Impuls,
+ *   - Wiederkehrende Themen     ← Pattern-Agent
+ *   - Reflexionsfrage           ← Digest-Agent (aus den Einträgen der Woche),
  *     mit der Digest-Affirmation als sanftem Abschluss.
+ *
+ * Deckt der gespeicherte Digest die Vorwoche noch nicht ab, stösst der Screen
+ * einmal pro Sitzung /reflect an – sonst triggert den Agenten niemand.
  *
  * Bausteine aus `../components/home` (Bullet, QuoteBlock) und der
  * Themen-Chip aus `../components/insight` (Tag).
@@ -14,6 +17,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Card, HighlightText, PrivacyNote, SectionLabel } from '../components';
+import { LoadingPulse } from '../components/LoadingPulse';
 import { Bullet, QuoteBlock, MoodMirrorBlob } from '../components/home';
 import { Tag } from '../components/insight';
 import {
@@ -21,6 +25,8 @@ import {
   EntryRecord,
   KeywordItem,
   PatternResult,
+  createReflection,
+  detectPatterns,
   fetchEntries,
   fetchKeywords,
   fetchLatestDigest,
@@ -29,16 +35,33 @@ import {
 import { colors } from '../theme/colors';
 import { moodColor, MoodLevel, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
+import { lastWeekRange, lastWeekStartKey, parseCreatedAt } from '../utils/week';
 
-const FALLBACK_QUESTION = 'Was hat dir diese Woche am meisten Energie gegeben?';
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FALLBACK_QUESTION = 'Was hat dir letzte Woche am meisten Energie gegeben?';
 
-/** Nur Muster dieser Woche auf Home zeigen (created_at ist UTC "YYYY-MM-DD HH:MM:SS"). */
+/**
+ * Nur Daten der Vorwoche (Mo–So) auf Home zeigen – dasselbe Fenster wie der
+ * Digest-Agent und der Mood-Blob, damit alle drei über dieselben Tage reden.
+ * Ohne Zeitstempel wird nicht ausgeschlossen (Muster tragen nicht immer einen).
+ */
 function isWithinLastWeek(createdAt?: string): boolean {
-  if (!createdAt) return true; // ohne Zeitstempel nicht ausschliessen
-  const ts = Date.parse(`${createdAt.replace(' ', 'T')}Z`);
+  if (!createdAt) return true;
+  const ts = parseCreatedAt(createdAt);
   if (Number.isNaN(ts)) return true;
-  return Date.now() - ts < WEEK_MS;
+  const { start, end } = lastWeekRange();
+  return ts >= start && ts < end;
+}
+
+/**
+ * Ist die Musteranalyse noch aktuell? `created_at` ist der Analyse-Zeitpunkt;
+ * eine Analyse gilt als frisch, solange sie nach Beginn der Vorwoche lief –
+ * dann deckt sie deren Einträge ab. Ältere Analysen werden neu angestossen.
+ */
+function isPatternFresh(createdAt?: string): boolean {
+  if (!createdAt) return false;
+  const ts = parseCreatedAt(createdAt);
+  if (Number.isNaN(ts)) return false;
+  return ts >= lastWeekRange().start;
 }
 
 type Props = { onWrite?: () => void };
@@ -54,30 +77,77 @@ export default function HomeScreen({ onWrite }: Props) {
   // Dominante Mood-Farbe der Woche – hauchzarter Tint für die Zitat-Boxen,
   // damit sich die Digest-Sektion am Blob-Farbschema orientiert.
   const [weekAccent, setWeekAccent] = useState<string | undefined>();
-  // Typewriter-Trigger: werden true, sobald der jeweilige Block in den
-  // sichtbaren Bereich scrollt (und bleiben true – einmal pro Sitzung).
+  // Typewriter-Trigger: wird true, sobald der Block in den sichtbaren
+  // Bereich scrollt (und bleibt true – einmal pro Sitzung).
   const [typeSummary, setTypeSummary] = useState(false);
-  const [typeQuestion, setTypeQuestion] = useState(false);
+  // Laeuft gerade ein /reflect? (LLM, dauert ein paar Sekunden)
+  const [reflecting, setReflecting] = useState(false);
   const bodyY = useRef(0);
   const summaryY = useRef(0);
-  const questionY = useRef(0);
+  // Guard: hoechstens ein /reflect pro Sitzung, sonst feuert jeder Re-Mount
+  // des Screens das Modell erneut an.
+  const reflectStarted = useRef(false);
+  const patternStarted = useRef(false);
+
+  /** Wochenrueckblick der Vorwoche erzeugen lassen (nur einmal pro Sitzung). */
+  const refreshDigest = () => {
+    if (reflectStarted.current) return;
+    reflectStarted.current = true;
+    setReflecting(true);
+    createReflection(1)
+      .then(setDigest)
+      .catch(() => {
+        // 404 = keine Eintraege in der Vorwoche. Kein Fehlerfall: der leere
+        // Zustand unten sagt das bereits. Verbindungsfehler meldet der
+        // fetchLatestDigest-Pfad.
+      })
+      .finally(() => setReflecting(false));
+  };
+
+  /** Musteranalyse ueber die letzte Woche anstossen (nur einmal pro Sitzung). */
+  const refreshPatterns = () => {
+    if (patternStarted.current) return;
+    patternStarted.current = true;
+    detectPatterns(7)
+      // Die Antwort von /detect-patterns traegt kein created_at (das vergibt
+      // erst die DB) – ohne das gaelte das frische Muster als veraltet und die
+      // Karte bliebe leer. Deshalb den gespeicherten Stand nachladen.
+      .then(() => fetchLatestPatterns())
+      .then(setPattern)
+      .catch(() => {
+        /* keine/zu wenige Eintraege – der leere Zustand sagt das bereits */
+      });
+  };
 
   useEffect(() => {
+    // Deckt der gespeicherte Digest schon die Vorwoche ab? Wenn nicht (neue
+    // Woche oder noch nie erzeugt), einmal /reflect anstossen – niemand sonst
+    // triggert den Agenten. Verpasste Wochen holen sich so von selbst auf.
     fetchLatestDigest()
-      .then(setDigest)
+      .then((d) => {
+        setDigest(d);
+        if (d.week_start !== lastWeekStartKey()) refreshDigest();
+      })
       .catch((e) => {
         // Nur bei echtem Verbindungsfehler "offline". Ein HTTP-Fehler wie 404
         // heisst nur: es gibt noch keinen Wochenrueckblick (kein Backend-Problem).
-        if (!String(e?.message ?? '').includes('HTTP')) setOffline(true);
+        if (String(e?.message ?? '').includes('HTTP')) refreshDigest();
+        else setOffline(true);
       });
+    // Wie beim Digest: den Pattern-Agenten triggert sonst nur das Schreiben
+    // eines Eintrags. Ist die letzte Analyse aelter als die Vorwoche, hier
+    // einmal nachziehen – sonst bleibt die Themen-Karte dauerhaft leer.
     fetchLatestPatterns()
-      .then(setPattern)
-      .catch(() => {});
+      .then((p) => {
+        setPattern(p);
+        if (!isPatternFresh(p.created_at)) refreshPatterns();
+      })
+      .catch(() => refreshPatterns());
     // Häufigste Wörter der Woche – dienen als „wichtige" Begriffe zum Hervorheben.
     fetchKeywords(7, 10)
       .then((res) => setKeywords(res.keywords))
       .catch(() => {});
-    // Häufigste Stimmung der letzten 7 Tage bestimmen (gleiche Logik wie im
+    // Häufigste Stimmung der Vorwoche bestimmen (gleiche Logik wie im
     // MoodMirrorBlob: pro Eintrag, valence → 5-Stufen-Level).
     fetchEntries()
       .then((res) => {
@@ -94,21 +164,21 @@ export default function HomeScreen({ onWrite }: Props) {
       .catch(() => {});
   }, []);
 
-  // Blöcke gelten als "im Viewport", sobald sie zu ~85 % sichtbar werden.
+  // Der Block gilt als "im Viewport", sobald er zu ~85 % sichtbar wird.
   const checkInView = (offsetY: number) => {
     const line = offsetY + viewportH * 0.85;
     if (!typeSummary && summaryY.current > 0 && line > bodyY.current + summaryY.current) {
       setTypeSummary(true);
     }
-    if (!typeQuestion && questionY.current > 0 && line > bodyY.current + questionY.current) {
-      setTypeQuestion(true);
-    }
   };
 
   // Muster des Pattern-Agents fuer die Karte "Themen, die wiederkehren".
-  // Nur anzeigen, wenn die Analyse aus der letzten Woche stammt.
+  // Achtung: created_at ist der Zeitpunkt der ANALYSE, nicht der Zeitraum der
+  // Daten. Er darf deshalb nicht gegen das Vorwochen-Fenster geprueft werden –
+  // eine heute gelaufene Analyse faellt da nie hinein. Stattdessen: zeigen,
+  // solange die Analyse frisch ist (siehe isPatternFresh).
   const activePattern =
-    pattern && pattern.status !== 'no_data' && isWithinLastWeek(pattern.created_at)
+    pattern && pattern.status !== 'no_data' && isPatternFresh(pattern.created_at)
       ? pattern
       : null;
   const observations = activePattern?.observations ?? [];
@@ -158,7 +228,13 @@ export default function HomeScreen({ onWrite }: Props) {
         <MoodMirrorBlob onWrite={onWrite} minHeight={viewportH || undefined} />
 
         <View style={styles.body} onLayout={(e) => (bodyY.current = e.nativeEvent.layout.y)}>
-          <SectionLabel text="Tonverlauf" />
+          {/* Überschrift über dem gesamten Digest-Abschnitt (Weekly Digest) */}
+          <Text style={styles.digestTitle}>Wochenrückblick</Text>
+          <Text style={styles.digestSubtitle}>Was deine Einträge über die Woche erzählen</Text>
+
+          <View style={styles.firstSection}>
+            <SectionLabel text="Tonverlauf" />
+          </View>
           {digest ? (
             <View
               style={styles.sectionContent}
@@ -171,6 +247,8 @@ export default function HomeScreen({ onWrite }: Props) {
                 </View>
               ))}
             </View>
+          ) : reflecting ? (
+            <LoadingPulse label="Dein Wochenrückblick entsteht …" />
           ) : (
             <Text style={styles.hint}>
               {offline
@@ -179,7 +257,7 @@ export default function HomeScreen({ onWrite }: Props) {
             </Text>
           )}
 
-          <View style={styles.spacer32}>
+          <View style={styles.section}>
             <SectionLabel
               text="Themen, die wiederkehren"
               emphasis={
@@ -206,18 +284,20 @@ export default function HomeScreen({ onWrite }: Props) {
             )}
           </View>
 
-          <View
-            style={styles.spacer32}
-            onLayout={(e) => (questionY.current = e.nativeEvent.layout.y)}
-          >
-            <SectionLabel text="Eine Frage zum Weitertragen" />
+          <View style={styles.section}>
+            <SectionLabel text="Reflexionsfrage" />
             <View style={styles.sectionContent}>
-              <QuoteBlock text={FALLBACK_QUESTION} accentColor={weekAccent} typingActive={typeQuestion} />
+              {/* Frage des Digest-Agents aus den Einträgen der Woche; der
+                  neutrale Satz greift nur, wenn noch kein Digest da ist. */}
+              <QuoteBlock
+                text={digest?.question?.trim() || FALLBACK_QUESTION}
+                accentColor={weekAccent}
+              />
             </View>
           </View>
 
           {digest?.affirmation ? (
-            <View style={styles.spacer32}>
+            <View style={styles.section}>
               <SectionLabel text="Ermutigung" />
               <View style={styles.sectionContent}>
                 <Text style={styles.affirmation}>{digest.affirmation}</Text>
@@ -235,14 +315,32 @@ export default function HomeScreen({ onWrite }: Props) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1, paddingBottom: 24 },
-  body: { paddingHorizontal: 20, paddingTop: 24 },
-  footerPrivacy: { marginTop: 28, marginBottom: 8 },
-  spacer32: { marginTop: 32 },
-  sectionContent: { marginTop: 12, gap: 12 },
+  body: { paddingHorizontal: 20, paddingTop: 36 },
+  // Überschrift des Wochenrückblick-Abschnitts – Serif wie die Wortmarke,
+  // damit der Abschnitt als eigenes „Kapitel" unter dem Hero lesbar ist.
+  digestTitle: {
+    fontFamily: serif,
+    fontSize: 26,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  digestSubtitle: {
+    marginTop: 6,
+    fontSize: 14,
+    lineHeight: 20,
+    color: colors.textMuted,
+  },
+  // Abstand Kapitel-Überschrift → erster Abschnitt bzw. zwischen den
+  // Abschnitten: großzügig, damit die Sektionen als Einheiten lesbar sind –
+  // innerhalb eines Abschnitts bleibt es bewusst dichter (sectionContent).
+  firstSection: { marginTop: 32 },
+  footerPrivacy: { marginTop: 36, marginBottom: 8 },
+  section: { marginTop: 44 },
+  sectionContent: { marginTop: 14, gap: 12 },
   bulletSpacing: { marginBottom: -8 },
   pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  themeCard: { marginTop: 12 },
-  hint: { marginTop: 12, fontSize: 14, lineHeight: 20, color: colors.textMuted },
+  themeCard: { marginTop: 14 },
+  hint: { marginTop: 14, fontSize: 14, lineHeight: 20, color: colors.textMuted },
   affirmation: {
     fontFamily: serif,
     fontStyle: 'italic',

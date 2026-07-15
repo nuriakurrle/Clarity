@@ -13,7 +13,12 @@ import { colors } from '../../theme/colors';
 
 export type MoodPoint = { label: string; valence: number };
 
-type Props = { data: MoodPoint[]; height?: number };
+type Props = {
+  data: MoodPoint[];
+  height?: number;
+  /** Indizes ohne sichtbaren Punkt (interpolierte Positionen ohne Eintrag). */
+  hideDotsAtIndex?: number[];
+};
 
 /** '#RRGGBB' + Deckkraft → 'rgba(r,g,b,a)' (chart-kit gibt die Opacity vor). */
 function rgba(hex: string, opacity = 1): string {
@@ -21,14 +26,16 @@ function rgba(hex: string, opacity = 1): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`;
 }
 
-export function MoodLineChart({ data, height = 200 }: Props) {
+export function MoodLineChart({ data, height = 200, hideDotsAtIndex }: Props) {
   const [width, setWidth] = useState(0);
 
-  // Bei vielen Punkten nicht jede Beschriftung zeigen, sonst überlappt es.
-  const step = Math.max(1, Math.ceil(data.length / 6));
-  const labels = data.map((d, i) => (i % step === 0 ? d.label : ''));
-  const values = data.map(
-    (d) => Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100),
+  // Die Aufrufer dünnen selbst aus (leere Strings an Positionen ohne Marke).
+  const labels = data.map((d) => d.label);
+  // Anzeige-Werte leicht vom Rand wegpolstern (4..96): Ein Tag mit maximal
+  // negativer/positiver Stimmung läge sonst exakt AUF der Rahmenlinie und
+  // wäre unsichtbar – so bleibt der Punkt immer im Zeichenbereich.
+  const values = data.map((d) =>
+    Math.min(96, Math.max(4, Math.round(((Math.max(-1, Math.min(1, d.valence)) + 1) / 2) * 100))),
   );
 
   return (
@@ -40,20 +47,32 @@ export function MoodLineChart({ data, height = 200 }: Props) {
           height={height}
           bezier
           fromZero
+          // Y-Skala fest auf 0–100 pinnen (wie der Karten-Untertitel verspricht).
+          // Ohne das kollabiert die Skala, wenn alle Tage denselben Wert haben –
+          // eine flache Linie bei 0 lag dann unsichtbar auf der Grundlinie.
+          fromNumber={100}
           segments={4}
+          // Bewusst NICHT hidePointsAtIndex: das würde auch die X-Achsen-Labels
+          // an diesen Indizes unterdrücken. Stattdessen unsichtbare Dots (r=0).
+          getDotProps={(_, i) =>
+            hideDotsAtIndex?.includes(i)
+              ? { r: '0' }
+              : { r: '4', strokeWidth: '2', stroke: colors.surface }
+          }
           withVerticalLines={false}
           withHorizontalLabels={false}
           chartConfig={{
             backgroundGradientFrom: colors.surface,
             backgroundGradientTo: colors.surface,
             decimalPlaces: 0,
-            color: (o = 1) => rgba(colors.primary, o),
+            // Tinte statt Akzent-Grün: fügt sich in den Schwarz-Weiß-Look
+            // der App ein, die Fläche darunter bleibt bewusst hauchzart.
+            color: (o = 1) => rgba(colors.text, o),
             labelColor: (o = 1) => rgba(colors.textMuted, o),
-            fillShadowGradientFrom: colors.primary,
-            fillShadowGradientFromOpacity: 0.2,
+            fillShadowGradientFrom: colors.text,
+            fillShadowGradientFromOpacity: 0.08,
             fillShadowGradientTo: colors.surface,
             fillShadowGradientToOpacity: 0,
-            propsForDots: { r: '4', strokeWidth: '2', stroke: colors.surface },
             propsForBackgroundLines: { stroke: colors.border, strokeDasharray: '4 7' },
           }}
           style={styles.chart}
