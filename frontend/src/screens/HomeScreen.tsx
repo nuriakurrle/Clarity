@@ -3,6 +3,7 @@
  *
  * Füllt die drei Abschnitte mit Inhalten aus dem Backend:
  *   - Tonverlauf                ← Digest-Agent (Zusammenfassung der Woche)
+ *     + Pattern-Agent (language_shifts: Ton-Entwicklung über die Woche)
  *   - Wiederkehrende Themen     ← Pattern-Agent
  *   - Reflexionsfrage           ← Digest-Agent (aus den Einträgen der Woche),
  *     mit der Digest-Affirmation als sanftem Abschluss.
@@ -244,6 +245,12 @@ export default function HomeScreen({ onWrite }: Props) {
               {digest.highlights.map((h, i) => (
                 <View key={i} style={styles.bulletSpacing}>
                   <Bullet text={<HighlightText text={h} terms={highlightTerms} />} />
+                </View>
+              ))}
+              {/* Ton-Entwicklung der Woche aus dem Pattern-Agent */}
+              {(activePattern?.language_shifts ?? []).map((s, i) => (
+                <View key={`shift-${i}`} style={styles.bulletSpacing}>
+                  <Bullet text={<HighlightText text={s} terms={highlightTerms} />} />
                 </View>
               ))}
             </View>
