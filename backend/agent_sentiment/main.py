@@ -5,7 +5,7 @@ from collections import defaultdict
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional, List
 import httpx, uvicorn
 from datetime import datetime, timedelta
@@ -76,6 +76,69 @@ class MoodProfileRequest(BaseModel):
     days: int = 7  # Last N days
     include_trend: bool = True
 
+
+class SentimentResult(BaseModel):
+    """Validierte LLM-Antwort – Vertrag mit DB und Frontend.
+
+    Fehlende Felder bekommen neutrale Defaults, Zahlen werden in die
+    Vertragsbereiche geklemmt (valence [-1, 1], intensity/confidence [0, 100]).
+    Unparsbare Zahlen lassen die Analyse gezielt fehlschlagen – der Backfill
+    versucht es später mit einer frischen LLM-Antwort, statt Müll zu speichern.
+    """
+
+    sentiment: str = "neutral"
+    valence: float = 0.0
+    intensity: float = 50.0
+    tone: str = ""
+    primary_emotion: str = ""
+    secondary_emotions: List[str] = []
+    confidence: float = 0.0
+
+    @field_validator("sentiment", "tone", "primary_emotion", mode="before")
+    @classmethod
+    def _text(cls, v):
+        return "" if v is None else str(v).strip()
+
+    @field_validator("secondary_emotions", mode="before")
+    @classmethod
+    def _emotion_list(cls, v):
+        # Das LLM liefert manchmal einen String oder null statt einer Liste
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v.strip()] if v.strip() else []
+        return [str(x) for x in v if x]
+
+    @field_validator("valence", "intensity", "confidence", mode="before")
+    @classmethod
+    def _number(cls, v):
+        if v is None or isinstance(v, bool):
+            raise ValueError("not a number")
+        return float(v)  # Zahlen als String ("0.5") ok, "abc" -> ValueError
+
+    @field_validator("valence")
+    @classmethod
+    def _clamp_valence(cls, v):
+        return max(-1.0, min(1.0, v))
+
+    @field_validator("intensity", "confidence")
+    @classmethod
+    def _clamp_0_100(cls, v):
+        return max(0.0, min(100.0, v))
+
+    @model_validator(mode="after")
+    def _align_sentiment(self):
+        # Konsistenzregel aus dem Prompt serverseitig durchsetzen: das Label
+        # muss zur Valenz passen. Bei Widerspruch gewinnt die Zahl, denn sie
+        # steuert Kalender, Charts und Mood-Statistiken.
+        derived = "positive" if self.valence > 0 else "negative" if self.valence < 0 else "neutral"
+        self.sentiment = self.sentiment.lower()
+        if self.sentiment not in ("positive", "neutral", "negative") or (
+            self.sentiment != "neutral" and self.sentiment != derived
+        ):
+            self.sentiment = derived
+        return self
+
 @app.get("/health")
 async def health():
     return {"status": "healthy", "agent": "sentiment", "model": MODEL}
@@ -117,8 +180,9 @@ async def run_analysis(entry_id: int, input: TextInput):
             json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response_text, re.DOTALL)
 
             if json_match:
-                sentiment_data = json.loads(json_match.group())
-                logger.info(f"✅ Sentiment detected - Valence: {sentiment_data.get('valence')}, Intensity: {sentiment_data.get('intensity')}")
+                # Validieren + klemmen, bevor irgendetwas in die DB geht
+                sentiment = SentimentResult.model_validate(json.loads(json_match.group()))
+                logger.info(f"✅ Sentiment detected - Valence: {sentiment.valence}, Intensity: {sentiment.intensity}")
 
                 # Eintrag könnte während der LLM-Analyse gelöscht worden sein –
                 # dann nichts speichern, sonst entstehen verwaiste Analyse-Zeilen,
@@ -133,18 +197,18 @@ async def run_analysis(entry_id: int, input: TextInput):
                 # 💾 SAVE TO DATABASE
                 save_sentiment(
                     entry_id,
-                    sentiment_data.get("sentiment", "neutral"),
-                    sentiment_data.get("valence", 0),
-                    sentiment_data.get("intensity", 50),
-                    sentiment_data.get("tone", ""),
-                    sentiment_data.get("primary_emotion", ""),
-                    sentiment_data.get("secondary_emotions", []),
-                    sentiment_data.get("confidence", 0)
+                    sentiment.sentiment,
+                    sentiment.valence,
+                    sentiment.intensity,
+                    sentiment.tone,
+                    sentiment.primary_emotion,
+                    sentiment.secondary_emotions,
+                    sentiment.confidence
                 )
                 logger.info(f"💾 Saved sentiment to DB (entry_id={entry_id})")
 
                 # Update mood profile
-                save_mood_profile(entry_id, sentiment_data)
+                save_mood_profile(entry_id, sentiment.model_dump())
             else:
                 logger.error(f"Failed to extract JSON from: {response_text[:200]}")
     except Exception as e:
