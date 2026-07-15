@@ -1,141 +1,92 @@
-"""CrewAI Sentiment Agent - Emotional Analysis Specialist"""
-from crewai import Agent, Task, Crew
-from crewai_tools import tool
+"""CrewAI Sentiment Agent - Emotional Tone Analyst.
+
+Der Agent analysiert die emotionale Tönung einzelner Journal-Einträge:
+Sentiment, Valenz, Intensität sowie primäre und sekundäre Emotionen.
+
+Aufbau analog zu Pattern- und Digest-Agent (``agent_pattern/agent.py``,
+``agent_digest/agent.py``): Der Agent definiert die "Persona"
+(role/goal/backstory). Aus dieser Persona baut ``build_sentiment_prompt`` den
+Prompt für das lokale Ollama-Modell zusammen, damit die Agenten-Definition
+tatsächlich benutzt wird und kein toter Code ist. ``main.py`` importiert nur
+``build_sentiment_prompt``.
+"""
+import os
+
+# crewai 0.1.0 validiert beim Erzeugen eines Agent() das Vorhandensein eines
+# LLM-Keys, obwohl wir die Texte lokal ueber Ollama erzeugen und nie eine Crew
+# ausfuehren (kein externer Aufruf). Ein Platzhalter genuegt der Validierung.
+os.environ.setdefault("OPENAI_API_KEY", "not-needed-clarity-uses-local-ollama")
+
+from crewai import Agent
 
 sentiment_agent = Agent(
     role="Emotional Analyst & Mood Tracking Specialist",
     goal="""Analyze emotional tone, valence, and intensity in journal entries.
-    Build longitudinal mood profiles that track emotional shifts over time.
-    Identify emotional patterns, triggers, and provide mood insights.""",
+    Identify the primary and secondary emotions and describe the emotional tone
+    precisely, so a longitudinal mood profile can be built over time.""",
     backstory="""You are an empathetic psychological analyst with deep expertise in:
     - Emotional intelligence and sentiment analysis
-    - Longitudinal mood tracking and trend analysis
-    - Identifying emotional patterns and triggers
     - Understanding emotional valence (positivity spectrum) and intensity
+    - Classifying primary and secondary emotions
     - Providing compassionate, evidence-based emotional insights
-    
+
     Your role is to help users understand their emotional journey by analyzing
     their journal entries and building a comprehensive mood profile over time.""",
     verbose=True,
-    allow_delegation=False
+    allow_delegation=False,
 )
 
-emotion_detector_agent = Agent(
-    role="Discrete Emotion Classifier",
-    goal="""Identify and classify specific emotions from journal entries.
-    Map complex emotional states to primary and secondary emotions.
-    Track emotional evolution throughout entries and over time.""",
-    backstory="""You are an expert in emotion classification with knowledge of:
-    - Primary vs. secondary emotions
-    - Emotion theory and psychological models
-    - Cultural nuances in emotional expression
-    - Cross-domain emotional intelligence
-    
-    Your task is to provide precise emotion labeling to complement valence/intensity metrics.""",
-    verbose=True,
-    allow_delegation=False
-)
+# Selbsteinschätzung (5-stufige Skala der App) → Kontext für das LLM
+MOOD_DESCRIPTIONS = {
+    "great": "very positive (valence around +0.8)",
+    "good": "positive (valence around +0.4)",
+    "neutral": "neutral (valence around 0)",
+    "low": "somewhat negative (valence around -0.4)",
+    "bad": "very negative (valence around -0.8)",
+}
 
-mood_trend_agent = Agent(
-    role="Longitudinal Mood Trend Analyzer",
-    goal="""Analyze mood patterns across days, weeks, and months.
-    Detect emotional shifts and state changes.
-    Provide actionable insights about mood trajectory and stability.""",
-    backstory="""You are a behavioral scientist specializing in:
-    - Temporal mood patterns and trends
-    - Mood stability and volatility assessment
-    - Identifying recovery patterns and resilience
-    - Connecting mood shifts to life events
-    
-    Your expertise helps users understand their emotional resilience and patterns.""",
-    verbose=True,
-    allow_delegation=False
-)
 
-def analyze_entry_sentiment(entry_text: str) -> dict:
-    """Analyze a single journal entry for sentiment and emotion"""
-    
-    analyze_task = Task(
-        description=f"""Analyze the following journal entry for emotional tone:
-        
-Entry: {entry_text}
+def build_sentiment_prompt(text: str, self_reported_mood: str | None = None) -> str:
+    """Baut den LLM-Prompt aus der Agenten-Persona + dem Eintrag.
 
-Provide a detailed emotional analysis including:
-1. Overall sentiment (positive/negative/neutral)
-2. Emotional valence on a scale from -1 (very negative) to +1 (very positive)
-3. Emotional intensity from 0 (minimal) to 100 (maximum)
-4. Identified primary emotion
-5. Secondary emotions present
-6. Emotional tone description
-7. Confidence level in the analysis""",
-        agent=sentiment_agent,
-        expected_output="Detailed sentiment analysis with all requested metrics"
-    )
-    
-    crew = Crew(
-        agents=[sentiment_agent],
-        tasks=[analyze_task],
-        verbose=True
-    )
-    
-    result = crew.kickoff()
-    return result
+    Wird von ``main.py`` genutzt, damit die oben definierte Agenten-Rolle den
+    tatsächlichen Ollama-Aufruf steuert. Das JSON-Ausgabeformat (sentiment,
+    valence, intensity, tone, primary_emotion, secondary_emotions, confidence,
+    reasoning) ist Vertrag mit DB und Frontend und darf nicht verändert werden.
+    """
+    mood_hint = ""
+    mood_description = MOOD_DESCRIPTIONS.get(self_reported_mood or "")
+    if mood_description:
+        mood_hint = (
+            f"\nWhile writing, the user self-reported their mood as: {mood_description}. "
+            "Treat this as helpful additional context, but base your analysis primarily "
+            "on the text itself. If text and self-report disagree, mention it in the reasoning.\n"
+        )
 
-def identify_emotions(entry_text: str) -> dict:
-    """Identify discrete emotions in a journal entry"""
-    
-    emotion_task = Task(
-        description=f"""Classify emotions in this journal entry:
+    return f"""{sentiment_agent.role}.
 
-Entry: {entry_text}
+Your goal: {sentiment_agent.goal}
 
-Identify:
-1. Primary emotion (main emotional state)
-2. Secondary emotions (supporting emotions)
-3. Emotion intensity levels
-4. Emotional clusters and relationships
-5. Any mixed or conflicting emotions""",
-        agent=emotion_detector_agent,
-        expected_output="Classified emotions with relationships and intensity"
-    )
-    
-    crew = Crew(
-        agents=[emotion_detector_agent],
-        tasks=[emotion_task],
-        verbose=True
-    )
-    
-    result = crew.kickoff()
-    return result
+Analyze the emotional content of this journal entry deeply.
 
-def analyze_mood_trend(entries_timeline: list) -> dict:
-    """Analyze mood trends across multiple entries"""
-    
-    timeline_str = "\n---\n".join([
-        f"Date: {e.get('date', 'N/A')}\nEntry: {e.get('text', '')[:200]}..."
-        for e in entries_timeline
-    ])
-    
-    trend_task = Task(
-        description=f"""Analyze mood trends across these entries:
+Entry: "{text}"
+{mood_hint}
 
-{timeline_str}
+Respond ONLY with valid JSON (no markdown, no explanations) in exactly this structure:
+{{
+    "sentiment": "<positive, neutral or negative>",
+    "valence": <number between -1.0 and 1.0>,
+    "intensity": <number between 0 and 100>,
+    "tone": "<short description of the emotional tone>",
+    "primary_emotion": "<single strongest emotion>",
+    "secondary_emotions": ["<emotion>", "<emotion>"],
+    "confidence": <number between 0 and 100>,
+    "reasoning": "<brief explanation>"
+}}
 
-Provide:
-1. Overall mood trajectory (improving/declining/stable)
-2. Significant emotional shifts and their timing
-3. Emotional patterns and recurring themes
-4. Mood volatility and stability assessment
-5. Recovery patterns and resilience indicators""",
-        agent=mood_trend_agent,
-        expected_output="Longitudinal mood trend analysis with insights"
-    )
-    
-    crew = Crew(
-        agents=[mood_trend_agent],
-        tasks=[trend_task],
-        verbose=True
-    )
-    
-    result = crew.kickoff()
-    return result
+Rules:
+- valence measures positivity: -1.0 = very negative, 0.0 = neutral, +1.0 = very positive.
+- valence MUST be consistent with sentiment: positive sentiment requires valence > 0, negative sentiment requires valence < 0.
+- intensity measures emotional strength: 0 = minimal, 100 = maximum emotional energy.
+- Derive every value from the actual entry text. Never output placeholder or example values.
+"""

@@ -18,6 +18,7 @@ from database import (
     get_entries_with_sentiment, get_db_connection, update_entry_content,
     delete_entry, save_entry_image, get_entry_images, delete_entry_image
 )
+from agent import build_sentiment_prompt
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -71,15 +72,6 @@ class TextInput(BaseModel):
     # Optionale Selbsteinschätzung aus der App (Stimmungs-Icons im Editor)
     self_reported_mood: Optional[str] = None
 
-# Selbsteinschätzung (5-stufige Skala der App) → Kontext für das LLM
-MOOD_DESCRIPTIONS = {
-    "great": "very positive (valence around +0.8)",
-    "good": "positive (valence around +0.4)",
-    "neutral": "neutral (valence around 0)",
-    "low": "somewhat negative (valence around -0.4)",
-    "bad": "very negative (valence around -0.8)",
-}
-
 class MoodProfileRequest(BaseModel):
     days: int = 7  # Last N days
     include_trend: bool = True
@@ -109,38 +101,8 @@ async def run_analysis(entry_id: int, input: TextInput):
     Schlägt die Analyse fehl, bleibt der Eintrag ohne valence erhalten –
     die App zeigt ihn dann als neutral.
     """
-    mood_hint = ""
-    mood_description = MOOD_DESCRIPTIONS.get(input.self_reported_mood or "")
-    if mood_description:
-        mood_hint = (
-            f"\nWhile writing, the user self-reported their mood as: {mood_description}. "
-            "Treat this as helpful additional context, but base your analysis primarily "
-            "on the text itself. If text and self-report disagree, mention it in the reasoning.\n"
-        )
-
-    prompt = f"""You are an expert emotional analyst. Analyze the emotional content of this journal entry deeply.
-
-Entry: "{input.text}"
-{mood_hint}
-
-Respond ONLY with valid JSON (no markdown, no explanations) in exactly this structure:
-{{
-    "sentiment": "<positive, neutral or negative>",
-    "valence": <number between -1.0 and 1.0>,
-    "intensity": <number between 0 and 100>,
-    "tone": "<short description of the emotional tone>",
-    "primary_emotion": "<single strongest emotion>",
-    "secondary_emotions": ["<emotion>", "<emotion>"],
-    "confidence": <number between 0 and 100>,
-    "reasoning": "<brief explanation>"
-}}
-
-Rules:
-- valence measures positivity: -1.0 = very negative, 0.0 = neutral, +1.0 = very positive.
-- valence MUST be consistent with sentiment: positive sentiment requires valence > 0, negative sentiment requires valence < 0.
-- intensity measures emotional strength: 0 = minimal, 100 = maximum emotional energy.
-- Derive every value from the actual entry text. Never output placeholder or example values.
-"""
+    # Prompt aus der Agenten-Persona (agent.py) speisen – analog Pattern/Digest.
+    prompt = build_sentiment_prompt(input.text, input.self_reported_mood)
 
     try:
         async with httpx.AsyncClient(timeout=120) as client:
