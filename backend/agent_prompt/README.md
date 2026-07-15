@@ -111,6 +111,61 @@ Response:
 }
 ```
 
+### Generate Prompts (Orchestrator, 4 kontextbezogene Fragen)
+```
+POST /generate-prompts
+
+Request:
+{
+  "text": "Heute war die Arbeit wieder zu viel.",
+  "entries": ["Montag Stress im Job", "Dienstag kaum geschlafen"],
+  "use_sentiment": true,
+  "use_pattern": true,
+  "use_digest": false,
+  "blocked_topics": ["Finanzen"],
+  "entry_id": null
+}
+
+Response:
+{
+  "prompts": ["...?", "...?", "...?", "...?"],
+  "mode": "reflection",            // oder "starter" (Text < 15 Zeichen)
+  "source": "ollama",              // "ollama" | "mixed" | "library"
+  "context_used": ["sentiment", "pattern"]
+}
+```
+
+Der Endpoint ruft Sentiment (8001), Pattern (8002) und Digest (8004) auf und
+baut aus deren Ergebnissen den Ollama-Prompt. Pro Komponente gilt:
+Override aus dem Request → Live-Analyse mit `persist=false` → zuletzt
+gespeichertes Ergebnis (lesende Endpoints) → weglassen. Ohne Ollama kommen
+die Fragen aus der lokalen Bibliothek (`source: "library"`).
+
+## Koordination: persist-Flag (additive Änderung bei den anderen Agents)
+
+Damit die Live-Aufrufe keine Geister-Daten erzeugen, braucht jeder
+Analyse-Endpoint eine additive Flag `persist: bool = True` (Default =
+bisheriges Verhalten, ändert für niemanden etwas):
+
+| Agent | Endpoint | Ownerin | Status |
+|---|---|---|---|
+| Sentiment | `POST /analyze` | Aicha | **PFLICHT** – `save_entry()` schreibt sonst in `entries` |
+| Pattern | `POST /detect-patterns` | Coumba | empfohlen – eigene Tabelle, unkritisch |
+| Digest | `POST /create-digest` | Katharina | empfohlen – eigene Tabelle, unkritisch |
+
+Beispiel (Sentiment): `persist: bool = True` ins `TextInput`, und
+`save_entry()`/`save_sentiment()` nur bei `input.persist` ausführen –
+bei `persist=false` läuft die Analyse synchron und die Antwort enthält
+das Ergebnis (`sentiment`, `emotions`), ohne etwas zu speichern.
+
+**Sicherung im Prompt-Agent:** Vor jedem Live-Aufruf prüft
+`tools/context_fetcher.py` über `/openapi.json`, ob der Endpoint die
+`persist`-Flag schon anbietet. Solange nicht, wird der Live-Aufruf
+übersprungen (Pydantic würde die Flag sonst stillschweigend ignorieren
+und trotzdem speichern) und stattdessen das zuletzt gespeicherte Ergebnis
+gelesen. Sobald eine Ownerin ihre Flag deployt, nutzt der Prompt-Agent
+sie automatisch – ohne weitere Änderung hier.
+
 ## Architecture
 
 ```
@@ -120,8 +175,9 @@ backend/agent_prompt/
 │                             #  Agenten gemeinsam unter backend/)
 │
 ├── tools/
-│   ├── prompt_library.py     # All prompt templates (DE/EN)
-│   └── context_analyzer.py   # Decision logic for prompt selection
+│   ├── prompt_library.py     # All prompt templates (DE/EN) + Offline-Auswahl
+│   ├── context_analyzer.py   # Decision logic for prompt selection
+│   └── context_fetcher.py    # Orchestriert Sentiment/Pattern/Digest (persist=false)
 │
 ├── schemas/
 │   └── __init__.py           # Pydantic models for API

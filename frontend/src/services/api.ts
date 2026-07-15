@@ -34,7 +34,7 @@ function baseUrl(agent: AgentName): string {
   return `http://${HOST}:${PORTS[agent]}`;
 }
 
-async function request<T>(
+export async function request<T>(
   agent: AgentName,
   path: string,
   init?: RequestInit,

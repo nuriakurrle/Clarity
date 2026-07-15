@@ -11,9 +11,12 @@ import React from 'react';
 import { PromptBubble } from './PromptBubble';
 import { PromptConsentBanner } from './PromptConsentBanner';
 import { usePromptSuggestions } from '../../hooks/usePromptSuggestions';
+import type { MoodLevel } from '../../theme/colors';
 
 type Props = {
   journalText: string;
+  /** Gewählte Stimmung: geht als Sentiment-Override an den Prompt-Agenten. */
+  mood?: MoodLevel | null;
   /** Färbt den Orb (z.B. in der gewählten Stimmungsfarbe). */
   moodTint?: string;
   /** Beim Schreiben (Tastatur offen): Orb zurückhaltend klein und blass. */
@@ -21,7 +24,7 @@ type Props = {
   onSelectPrompt: (prompt: string) => void;
 };
 
-export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt }: Props) {
+export function PromptAssistant({ journalText, mood, moodTint, compact, onSelectPrompt }: Props) {
   const {
     visible,
     currentSuggestion,
@@ -29,7 +32,7 @@ export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt
     next,
     acceptConsent,
     declineConsent,
-  } = usePromptSuggestions(journalText);
+  } = usePromptSuggestions(journalText, mood ?? null);
 
   return (
     <>
@@ -39,7 +42,8 @@ export function PromptAssistant({ journalText, moodTint, compact, onSelectPrompt
         onDecline={declineConsent}
       />
 
-      {/* Orb antippen = nächste Frage (lokale Liste, ohne Agent);
+      {/* Orb antippen = nächste Frage aus dem Agent-Pool (Orchestrator mit
+          echten Einträgen; offline lokale Bibliothek);
           Sprechblase antippen = Frage in den Eintrag übernehmen. */}
       <PromptBubble
         suggestion={currentSuggestion}

@@ -359,6 +359,7 @@ export default function EntryScreen({ onDone }: Props) {
               nur mit Empfehlung präsent */}
           <PromptAssistant
             journalText={bodyText}
+            mood={mood}
             moodTint={mood ? moodColor[mood] : undefined}
             compact={keyboardOpen || formatOpen}
             onSelectPrompt={handlePromptSelect}
