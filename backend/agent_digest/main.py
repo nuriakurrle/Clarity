@@ -28,6 +28,11 @@ from database import (
     get_latest_digest,
 )
 
+# Prompt-Bau liegt beim Agenten (agent.py): build_reflection_prompt speist den
+# Prompt aus der digest_agent-Persona, damit die Definition benutzt wird und
+# kein toter Code ist (analog agent_pattern).
+from agent import build_reflection_prompt
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -100,15 +105,6 @@ def extract_json(text: str) -> dict:
 # Fünfstufige Skala – identisch zu valenceToMoodLevel() im Frontend
 # (theme/moodColors.ts). Beide müssen dieselben Grenzen benutzen, sonst
 # widerspricht die Wochen-Ansprache im Blob der Zusammenfassung des Digests.
-MOOD_LABELS = {
-    "great": "sehr gut",
-    "good": "gut",
-    "neutral": "ausgeglichen",
-    "low": "gedrückt",
-    "bad": "schwer",
-}
-
-
 def valence_to_level(valence: float) -> str:
     if valence >= 0.6:
         return "great"
@@ -175,43 +171,6 @@ def summarize_patterns(patterns: list) -> str:
     themes = ", ".join(latest.get("top_themes", [])[:5]) or "–"
     trend = latest.get("mood_trend") or "–"
     return f"Top-Themen: {themes}. Stimmungstrend: {trend}."
-
-
-def build_reflection_prompt(
-    entries_text: str, mood: str, pattern: str, level: str | None = None
-) -> str:
-    verdict = (
-        f"""
-GESAMTBILD (gemessen, nicht verhandelbar):
-Die Woche war insgesamt {MOOD_LABELS[level]}. Die meisten Einträge fallen in
-diese Kategorie. Genau dieser Satz steht auch oben auf dem Startbildschirm.
-"""
-        if level
-        else ""
-    )
-    return f"""Du bist ein einfühlsamer Reflexions-Begleiter für eine Journaling-App.
-Erstelle eine Reflexion der vergangenen Woche auf Deutsch – basierend auf den
-Einträgen, der Stimmung und den erkannten Mustern dieser Woche.
-
-EINTRÄGE DER VERGANGENEN WOCHE (Mo–So):
-{entries_text}
-
-STIMMUNG:
-{mood}
-
-MUSTER:
-{pattern}
-{verdict}
-"summary" MUSS zum GESAMTBILD passen und darf ihm nicht widersprechen. War die
-Woche gut, schreib sie nicht als Herausforderung. Einzelne schwere Momente
-gehören in "challenges", nicht in die Zusammenfassung.
-
-"question" ist eine offene Frage zum Weitertragen, die sich konkret auf DIESE
-Woche bezieht – greife ein Thema, eine Person oder einen Moment aus den
-Einträgen auf. Keine allgemeine Floskel.
-
-Antworte AUSSCHLIESSLICH mit JSON in genau diesem Format:
-{{"summary": "2-3 Sätze Gesamtüberblick", "highlights": ["positive Momente"], "challenges": ["schwierige Momente"], "growth": ["erkennbare Entwicklung"], "affirmation": "ein ermutigender Satz für die nächste Woche", "question": "eine offene Frage zu dieser Woche"}}"""
 
 
 def week_window(weeks_back: int = 1) -> tuple[datetime, datetime]:
