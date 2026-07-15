@@ -10,11 +10,17 @@
  *
  * Ist der Agent nicht erreichbar, liefert fetchReflectionPrompts automatisch
  * Fragen aus der lokalen Offline-Bibliothek – der Orb funktioniert immer.
+ *
+ * Schreib-Hänger (useIdlePrompt): Bleibt der Text eine Weile unverändert –
+ * der User macht eine Pause oder kommt nicht ins Schreiben –, blendet der
+ * Orb von selbst die nächste Frage als Sprechblase ein. Danach greift ein
+ * Cooldown, damit dieselbe Pause nicht mehrfach hintereinander feuert.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchEntries } from '../services/api';
 import { fetchReflectionPrompts, moodToSentiment } from '../services/promptApi';
 import { offlinePrompts } from '../services/promptLibrary';
+import { useIdlePrompt } from './useIdlePrompt';
 import type { MoodLevel } from '../theme/colors';
 
 const DEBOUNCE_MS = 800;
@@ -119,6 +125,17 @@ export function usePromptSuggestions(journalText: string, mood: MoodLevel | null
       loadPrompts(journalText, false);
     }
   }, [journalText, mood, currentSuggestion, loading, loadPrompts]);
+
+  // Schreibpause erkannt (Text bleibt idleMs unverändert – auch die leere
+  // Seite zählt, wenn jemand nicht ins Schreiben findet): proaktiv die
+  // nächste Frage einblenden. dismiss() setzt den Cooldown, bevor next()
+  // den Text ggf. ändert und den Timer neu startet.
+  const { isIdle, dismiss: snoozeIdle } = useIdlePrompt(journalText, { enabled: visible });
+  useEffect(() => {
+    if (!isIdle) return;
+    snoozeIdle();
+    next();
+  }, [isIdle, snoozeIdle, next]);
 
   // Lädt auch bei leerem Text – der Agent liefert dann Starter-Fragen
   const refresh = useCallback(() => {
