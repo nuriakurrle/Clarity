@@ -160,6 +160,23 @@ export default function EntryScreen({ onDone }: Props) {
     setImages((prev) => [...prev, ...uris.filter((u) => !prev.includes(u))]);
   };
 
+  // Live-Foto mit der Gerätekamera (mobil-only). Beim ersten Mal fragt iOS/Android
+  // nach der Kamera-Berechtigung; ohne Freigabe erklärt ein Alert den Grund.
+  const handleTakePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(
+        'Kamera',
+        'Bitte erlaube den Kamera-Zugriff, um ein Foto zu deinem Eintrag hinzuzufügen.',
+      );
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.8 });
+    if (result.canceled) return;
+    const uri = result.assets[0]?.uri;
+    if (uri) setImages((prev) => (prev.includes(uri) ? prev : [...prev, uri]));
+  };
+
   const handleToggleDictation = async () => {
     if (voice.transcribing) return; // läuft schon – Ergebnis abwarten
     if (voice.recording) {
@@ -344,6 +361,7 @@ export default function EntryScreen({ onDone }: Props) {
             formatOpen={formatOpen}
             onToggleFormat={() => setFormatOpen((v) => !v)}
             onAddImage={handleAddImage}
+            onTakePhoto={handleTakePhoto}
             dictating={voice.recording}
             transcribing={voice.transcribing}
             onToggleDictation={handleToggleDictation}

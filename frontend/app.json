@@ -31,6 +31,13 @@
         {
           "microphonePermission": "Clarity nutzt das Mikrofon, um gesprochene Tagebucheinträge aufzunehmen und lokal zu transkribieren."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Clarity greift auf deine Fotos zu, um sie zu einem Tagebucheintrag hinzuzufügen.",
+          "cameraPermission": "Clarity nutzt die Kamera, um ein Foto direkt zu deinem Tagebucheintrag aufzunehmen."
+        }
       ]
     ]
   }

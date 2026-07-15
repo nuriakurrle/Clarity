@@ -26,6 +26,8 @@ type Props = {
   formatOpen: boolean;
   onToggleFormat: () => void;
   onAddImage: () => void;
+  /** Live-Foto aufnehmen (nur mobil – auf Web ausgeblendet). */
+  onTakePhoto?: () => void;
   dictating: boolean;
   /** Aufnahme ist beim Transcribe-Agenten (Whisper) in Arbeit. */
   transcribing?: boolean;
@@ -36,6 +38,7 @@ export function KeyboardToolbar({
   formatOpen,
   onToggleFormat,
   onAddImage,
+  onTakePhoto,
   dictating,
   transcribing,
   onToggleDictation,
@@ -78,6 +81,18 @@ export function KeyboardToolbar({
       >
         <Ionicons name="image-outline" size={20} color={colors.text} />
       </TouchableOpacity>
+
+      {/* Live-Foto: nur mobil sinnvoll (Web hat keine echte Kamera-Aufnahme). */}
+      {Platform.OS !== 'web' && onTakePhoto && (
+        <TouchableOpacity
+          style={styles.pill}
+          onPress={onTakePhoto}
+          activeOpacity={0.7}
+          accessibilityLabel="Foto aufnehmen"
+        >
+          <Ionicons name="camera-outline" size={20} color={colors.text} />
+        </TouchableOpacity>
+      )}
 
       <Animated.View style={dictating && { transform: [{ scale: pulseScale }] }}>
         <TouchableOpacity
