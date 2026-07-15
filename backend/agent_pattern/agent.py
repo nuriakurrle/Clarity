@@ -59,15 +59,17 @@ def _language_directive(text: str) -> str:
 def build_pattern_prompt(entries_text: str, sentiment_hint: str = "") -> str:
     """Baut den LLM-Prompt aus der Agenten-Persona + den Einträgen.
 
-    Wird von ``main.py`` genutzt, damit die oben definierte Agenten-Rolle den
-    tatsächlichen Ollama-Aufruf steuert.
+    ``entries_text`` enthält die Einträge MIT Datum und Wochentag (siehe
+    ``main.py``). Ohne Datumsangaben kann das Modell zeitliche Aussagen
+    ("Anfang der Woche...") nur erfinden - genau das soll der Prompt verhindern.
     """
     return f"""{_language_directive(entries_text)}{pattern_agent.role}.
 
 Your goal: {pattern_agent.goal}
 
-Analyse the following journal entries (separated by '---'). They span several
-days. Look ACROSS all of them for things that recur - not one-off events.
+Analyse the journal entries below. Each entry starts with its date and weekday,
+in chronological order (oldest first), separated by '---'. Look ACROSS all of
+them for things that RECUR - not one-off events.
 {sentiment_hint}
 Entries:
 {entries_text}
@@ -84,11 +86,22 @@ Respond ONLY with valid JSON (no markdown, no explanations) in exactly this stru
     "summary": "<2-3 neutral sentences describing the main patterns as observations>"
 }}
 
-Rules:
+GROUNDING RULES (most important - violating these makes the output useless):
+- Use ONLY words that literally appear in the entries above. Never invent a topic,
+  a person or an event that is not written there. Do not merge words into new
+  compound nouns (if the entries say "Uni" and "Abgabe", do NOT write "Uniabgaben").
+- A theme belongs in "recurring_themes" ONLY if it appears in at least TWO different
+  entries. One-off topics do not count, no matter how strong they sound.
+- An EMPTY array is a correct and expected answer. If nothing genuinely recurs, return
+  []. Never pad the output to look useful.
+- Every claim about TIME (e.g. "am Anfang der Woche", "zum Wochenende") must be backed
+  by the dates shown above. If the dates do not support it, leave language_shifts empty.
+- Never state a causal link ("X macht dich muede") unless the entries say so themselves.
+  Describe co-occurrence instead ("X kam mehrmals zusammen mit Muedigkeit vor").
+
+STYLE RULES:
 - Write ALL text values in German only - no English words, no mixing. Only the JSON keys and mood_trend stay in English.
-- Only include things that actually RECUR across entries; leave arrays empty if nothing recurs.
 - Phrase everything as neutral observations, never as judgements, advice or diagnosis.
-- Derive every value from the actual entries. Never output placeholder or example values.
 - mood_trend must be one of exactly: improving, stable, declining.
 - observations: 1-3 short GERMAN sentences in the reader's own perspective ("du"), each a
   single concrete pattern. Examples of the STYLE (do not copy the content):

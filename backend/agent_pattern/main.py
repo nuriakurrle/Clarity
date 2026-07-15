@@ -15,8 +15,8 @@ import httpx, uvicorn
 
 sys.path.insert(0, '/app/shared')
 from database import (
-    init_db, save_pattern, get_latest_pattern, get_patterns_since,
-    get_entries_since, get_sentiments_since,
+    init_db, save_pattern, get_latest_pattern, get_pattern_before,
+    get_patterns_since, get_entries_since, get_sentiments_since,
 )
 from agent import build_pattern_prompt
 
@@ -28,10 +28,29 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True,
                   allow_methods=["*"], allow_headers=["*"])
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-MODEL = os.getenv("MODEL", "llama3.2:1b")
+# Default an docker-compose angeglichen, damit ein lokaler Start dasselbe Modell nutzt.
+MODEL = os.getenv("MODEL", "llama3.2:3b")
 
 # Ab wie vielen Eintraegen eine sinnvolle Musteranalyse ueberhaupt moeglich ist.
-MIN_ENTRIES = 2
+# Aus zwei Eintraegen laesst sich nichts "Wiederkehrendes" ableiten - das Modell
+# wuerde nur erfinden.
+MIN_ENTRIES = 3
+
+# Ein Thema gilt erst als "wiederkehrend", wenn es in mindestens so vielen
+# Eintraegen tatsaechlich vorkommt. Das ist der Halluzinations-Filter: das Modell
+# erfindet gerne Themen (z.B. "Uniabgaben"), die in keinem Eintrag stehen.
+MIN_THEME_OCCURRENCES = 2
+
+# Deutsche Funktionswoerter, die ein Thema nicht inhaltlich kennzeichnen.
+STOPWORDS = {
+    "der", "die", "das", "den", "dem", "des", "ein", "eine", "einen", "einem",
+    "einer", "und", "oder", "mit", "von", "vom", "fuer", "für", "auf", "aus",
+    "bei", "beim", "zum", "zur", "nach", "vor", "ueber", "über", "unter",
+    "durch", "gegen", "ohne", "ist", "sind", "war", "waren", "hat", "habe",
+    "hatte", "wurde", "werden", "sein", "sich", "ich", "wie", "als", "auch",
+    "noch", "nur", "sehr", "viel", "mehr", "dass", "weil", "aber", "dann",
+    "schon", "immer",
+}
 
 
 def _since(days: int) -> str:
@@ -43,34 +62,122 @@ def _since(days: int) -> str:
     return since.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def fallback_patterns(entries: List[str]) -> dict:
-    """Notfall-Ergebnis, falls das LLM kein gueltiges JSON liefert."""
-    themes = [entry[:60].strip() for entry in entries[:3] if entry.strip()]
+def empty_patterns() -> dict:
+    """Leeres Ergebnis, falls das LLM kein gueltiges JSON liefert.
+
+    Bewusst OHNE erfundene Inhalte: die Vorgaenger-Version hat die ersten 60
+    Zeichen von Eintraegen als "Themen" ausgegeben und gespeichert. Lieber gar
+    kein Muster als ein falsches.
+    """
     return {
-        "recurring_themes": themes,
+        "recurring_themes": [],
         "recurring_people": [],
         "situations": [],
         "triggers": {},
         "language_shifts": [],
+        "observations": [],
         "mood_trend": "stable",
         "summary": "",
     }
 
 
-def _theme_counts(themes: List[str], entries: List[str]) -> dict:
-    """Zaehlt grob, in wie vielen Eintraegen ein Thema vorkommt (#50).
+def _content_words(phrase: str) -> List[str]:
+    """Inhaltstragende Woerter einer LLM-Phrase (ohne Funktionswoerter)."""
+    words = [w for w in re.split(r"[^0-9a-zäöüß]+", phrase.lower()) if w]
+    content = [w for w in words if len(w) >= 3 and w not in STOPWORDS]
+    return content or [phrase.lower().strip()]
 
-    Themen sind LLM-Phrasen (z.B. "Uni-Stress"); wir zaehlen Eintraege, die ein
-    aussagekraeftiges Wort des Themas enthalten.
+
+def _occurs_in(phrase: str, entry_lower: str) -> bool:
+    """Kommt `phrase` inhaltlich in diesem Eintrag vor?
+
+    ALLE inhaltstragenden Woerter muessen vorkommen (UND, nicht ODER). Genau hier
+    lag der Bug: mit ODER bekamen "Streit in der Familie" und "Zeit mit der
+    Familie verbracht" beide denselben Zaehler, weil beide auf "familie" matchten -
+    obwohl ein Abend mit der Familie kein Streit ist.
+
+    Der Substring-Vergleich pro Wort bleibt bewusst erhalten, damit deutsche
+    Komposita und Beugungen greifen ("familie" findet auch "Familienabend").
+    """
+    return all(word in entry_lower for word in _content_words(phrase))
+
+
+def _theme_counts(themes: List[str], entries: List[str]) -> dict:
+    """Zaehlt, in wie vielen Eintraegen ein Thema tatsaechlich vorkommt."""
+    lowered = [e.lower() for e in entries]
+    return {theme: sum(1 for e in lowered if _occurs_in(theme, e)) for theme in themes}
+
+
+_WEEKDAYS_DE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
+                "Samstag", "Sonntag"]
+
+
+def _with_date(row: dict) -> str:
+    """Formatiert einen Eintrag als 'Mo, 2026-07-07: <text>' fuer den Prompt.
+
+    So sieht das Modell die zeitliche Reihenfolge und kann Aussagen ueber den
+    Wochenverlauf belegen, statt sie zu erfinden.
+    """
+    created = str(row.get("created_at", ""))[:10]
+    label = created
+    try:
+        wd = datetime.strptime(created, "%Y-%m-%d").weekday()
+        label = f"{_WEEKDAYS_DE[wd][:2]}, {created}"
+    except ValueError:
+        pass
+    return f"{label}: {row['content'].strip()}"
+
+
+def _filter_hallucinations(pattern_data: dict, theme_counts: dict, entries: List[str]) -> dict:
+    """Entfernt Themen/Personen/Situationen, die nicht wirklich in den Eintraegen stehen.
+
+    Kern des Fixes: das kleine Modell erfindet gerne Inhalte. Ein Thema bleibt nur,
+    wenn es in mindestens MIN_THEME_OCCURRENCES Eintraegen vorkommt; Personen und
+    Situationen muessen wenigstens einmal belegbar sein.
     """
     lowered = [e.lower() for e in entries]
-    counts = {}
-    for theme in themes:
-        words = [w for w in re.split(r"[^0-9a-zäöüß]+", theme.lower()) if len(w) > 3]
-        if not words:
-            words = [theme.lower()]
-        counts[theme] = sum(1 for e in lowered if any(w in e for w in words))
-    return counts
+
+    pattern_data["recurring_themes"] = [
+        t for t in pattern_data["recurring_themes"]
+        if theme_counts.get(t, 0) >= MIN_THEME_OCCURRENCES
+    ]
+    pattern_data["recurring_people"] = [
+        p for p in pattern_data["recurring_people"]
+        if any(_occurs_in(p, e) for e in lowered)
+    ]
+    pattern_data["situations"] = [
+        s for s in pattern_data["situations"]
+        if any(_occurs_in(s, e) for e in lowered)
+    ]
+    pattern_data["triggers"] = {
+        k: v for k, v in pattern_data["triggers"].items()
+        if any(_occurs_in(k, e) for e in lowered)
+    }
+    # Themen-Zaehler auf die verbliebenen Themen eindampfen.
+    pattern_data["_kept_counts"] = {
+        t: theme_counts[t] for t in pattern_data["recurring_themes"]
+    }
+    return pattern_data
+
+
+def _previous_pattern(days: int) -> Optional[dict]:
+    """Letzte Analyse VOR dem aktuellen Fenster (fuer den Wochenvergleich)."""
+    return get_pattern_before(_since(days))
+
+
+def _matches_any(theme: str, prev_themes: List[str]) -> Optional[str]:
+    """Findet ein vorheriges Thema, das inhaltlich dasselbe meint - oder None.
+
+    Exakter String-Vergleich reicht nicht: das Modell formuliert dasselbe Thema
+    jede Woche anders ("Streit mit Mama" vs. "Streit in der Familie"). Wir gleichen
+    ueber die inhaltstragenden Woerter ab, damit "neu" auch wirklich neu bedeutet.
+    """
+    words = set(_content_words(theme))
+    for prev in prev_themes:
+        prev_words = set(_content_words(prev))
+        if words & prev_words:
+            return prev
+    return None
 
 
 async def _ollama_generate(prompt: str) -> str:
@@ -119,13 +226,19 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
     Ohne `entries` im Body werden die Eintraege der letzten `days` Tage aus der
     geteilten DB geholt (so arbeitet der Agent "across entries over time").
     """
-    # 1) Eintraege bestimmen: explizit uebergeben ODER aus der DB
+    # 1) Eintraege bestimmen: explizit uebergeben ODER aus der DB.
+    #    `entries` = reiner Text (fuer die Haeufigkeitszaehlung),
+    #    `entries_text` = derselbe Text MIT Datum/Wochentag (fuer den Prompt, damit
+    #    das Modell zeitliche Aussagen nicht erfinden muss).
     if input.entries:
         entries = [e for e in input.entries if e and e.strip()]
+        entries_text = "\n---\n".join(entries)
         sentiment_hint = ""
     else:
         rows = get_entries_since(_since(input.days))
-        entries = [r["content"] for r in rows if r.get("content", "").strip()]
+        rows = [r for r in rows if r.get("content", "").strip()]
+        entries = [r["content"] for r in rows]
+        entries_text = "\n---\n".join(_with_date(r) for r in rows)
         # Optional: Stimmungen als Zusatzkontext fuer die Trigger-Erkennung
         sentiments = get_sentiments_since(_since(input.days))
         sentiment_hint = ""
@@ -144,7 +257,6 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
         return {"status": "insufficient_data", "entry_count": len(entries)}
 
     logger.info("Analyzing %d entries...", len(entries))
-    entries_text = "\n---\n".join(entries)
     prompt = build_pattern_prompt(entries_text, sentiment_hint)
 
     try:
@@ -155,31 +267,39 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
             try:
                 pattern_data = json.loads(json_match.group())
             except Exception:
-                logger.warning("JSON parse failed, using fallback")
-                pattern_data = fallback_patterns(entries)
+                logger.warning("JSON parse failed, returning empty result")
+                pattern_data = empty_patterns()
         else:
-            logger.warning("No JSON in response, using fallback")
-            pattern_data = fallback_patterns(entries)
+            logger.warning("No JSON in response, returning empty result")
+            pattern_data = empty_patterns()
 
         # Defensiv normalisieren (Modell haelt sich nicht immer ans Schema)
         pattern_data = _normalize(pattern_data)
 
-        # Haeufigkeit pro Thema (#50)
+        # Halluzinationen entfernen: nur Inhalte behalten, die wirklich in den
+        # Eintraegen stehen und oft genug wiederkehren.
         theme_counts = _theme_counts(pattern_data["recurring_themes"], entries)
+        pattern_data = _filter_hallucinations(pattern_data, theme_counts, entries)
+        theme_counts = pattern_data.pop("_kept_counts")
 
-        # Vergleich mit der vorherigen Analyse: neue Themen (#51) + Trend (#52)
-        prev = get_latest_pattern()
-        prev_themes = prev.get("top_themes", []) if prev else []
+        # Vergleich mit der VORHERIGEN Analyse (echtes Zeitfenster, nicht die
+        # Analyse von vor 5 Minuten): neue Themen + Anstieg/Rueckgang. Wir nehmen
+        # die letzte Analyse, die aelter als das aktuelle Fenster ist.
+        prev = _previous_pattern(input.days)
         prev_counts = prev.get("theme_counts", {}) if prev else {}
-        new_themes = [t for t in pattern_data["recurring_themes"] if t not in prev_themes]
+        prev_themes = list(prev_counts.keys()) if prev else []
+        new_themes = [t for t in pattern_data["recurring_themes"]
+                      if not _matches_any(t, prev_themes)]
         theme_changes = {}
         for theme in pattern_data["recurring_themes"]:
-            count = theme_counts.get(theme, 0)
-            if theme not in prev_counts:
+            match = _matches_any(theme, prev_themes)
+            if match is None:
                 theme_changes[theme] = "neu"
-            elif count > prev_counts[theme]:
+                continue
+            count, prev_count = theme_counts.get(theme, 0), prev_counts.get(match, 0)
+            if count > prev_count:
                 theme_changes[theme] = "gestiegen"
-            elif count < prev_counts[theme]:
+            elif count < prev_count:
                 theme_changes[theme] = "gesunken"
             else:
                 theme_changes[theme] = "gleich"
@@ -187,7 +307,15 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
         pattern_data["theme_counts"] = theme_counts
         pattern_data["new_themes"] = new_themes
         pattern_data["theme_changes"] = theme_changes
-        logger.info("Patterns detected")
+        logger.info("Patterns detected: %d themes after filtering",
+                    len(pattern_data["recurring_themes"]))
+
+        # Leerfall: bleibt nach dem Filtern nichts Belastbares uebrig, geben wir
+        # ehrlich "kein Muster" zurueck - und speichern NICHT (ein leerer Eintrag
+        # wuerde den naechsten Wochenvergleich verfaelschen).
+        if not pattern_data["recurring_themes"] and not pattern_data["recurring_people"]:
+            logger.info("No grounded pattern after filtering, returning no_pattern")
+            return {"status": "no_pattern", "entry_count": len(entries)}
 
         # In der DB speichern (inkl. der reichhaltigen Felder)
         save_pattern(
