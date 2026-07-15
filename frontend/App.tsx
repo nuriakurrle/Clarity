@@ -6,14 +6,12 @@
  * zu den aktuell rein statischen Screens. Reicht das Routing-Bedürfnis
  * später darüber hinaus, kann dies durch z. B. React Navigation ersetzt
  * werden, ohne dass sich an den Screens unter `src/screens/` etwas ändert.
- *
- * Einblicke & Kalender sind aktuell bewusst leere Screens (siehe dort) –
- * nur die Tabs/das Routing dorthin existieren schon.
  */
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BottomNav, TabKey } from './src/components';
 import HomeScreen from './src/screens/HomeScreen';
@@ -23,7 +21,12 @@ import EntryDetailScreen from './src/screens/EntryDetailScreen';
 import InsightScreen from './src/screens/InsightScreen';
 import CalendarScreen from './src/screens/CalendarScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
 import { EntryRecord } from './src/services/api';
+import {
+  ensureNotificationPermission,
+  refreshScheduledNotifications,
+} from './src/services/notifications';
 import { colors } from './src/theme/colors';
 
 // AsyncStorage-Schluessel: gesetzt, sobald der Intro-Screen einmal weggeklickt
@@ -47,8 +50,19 @@ export default function App() {
     AsyncStorage.setItem(ONBOARDED_KEY, '1').catch(() => {});
   };
   const [showEntry, setShowEntry] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   // Angetippter Eintrag aus Verlauf/Kalender → Vollansicht (read-only)
   const [viewEntry, setViewEntry] = useState<EntryRecord | null>(null);
+
+  // Nach dem Onboarding einmal die Berechtigung anfragen und die geplanten
+  // Benachrichtigungen (Reminder + Inaktivitaets-Stupser) auf den gespeicherten
+  // Stand bringen - iOS behaelt geplante Notifications sonst ueber Neustarts.
+  useEffect(() => {
+    if (onboarded !== true) return;
+    ensureNotificationPermission()
+      .then(() => refreshScheduledNotifications())
+      .catch(() => {});
+  }, [onboarded]);
 
   const openEntry = () => {
     setViewEntry(null);
@@ -59,11 +73,18 @@ export default function App() {
   const changeTab = (key: TabKey) => {
     setShowEntry(false);
     setViewEntry(null);
+    setShowSettings(false);
     setTab(key);
   };
 
+  // Zahnrad nur auf den Haupt-Tabs zeigen - nicht beim Schreiben, in der
+  // Detail-/Settings-Ansicht (dort gibt es einen eigenen Ausgang).
+  const showGear = !showEntry && !viewEntry && !showSettings;
+
   let screen: React.ReactNode;
-  if (showEntry) {
+  if (showSettings) {
+    screen = <SettingsScreen onClose={() => setShowSettings(false)} />;
+  } else if (showEntry) {
     screen = <EntryScreen onDone={closeEntry} />;
   } else if (viewEntry) {
     screen = (
@@ -94,6 +115,19 @@ export default function App() {
           <>
             <View style={styles.screen}>{screen}</View>
 
+            {showGear && (
+              <SafeAreaView style={styles.gearWrap} edges={['top']} pointerEvents="box-none">
+                <Pressable
+                  onPress={() => setShowSettings(true)}
+                  hitSlop={10}
+                  style={styles.gear}
+                  accessibilityLabel="Einstellungen"
+                >
+                  <Ionicons name="settings-outline" size={22} color={colors.textMuted} />
+                </Pressable>
+              </SafeAreaView>
+            )}
+
             {/* Beim Schreiben ausgeblendet: Fokus-Modus ohne Tabs und redundanten „+"-FAB */}
             {!showEntry && <BottomNav active={tab} onChange={changeTab} onPressAdd={openEntry} />}
           </>
@@ -106,4 +140,12 @@ export default function App() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   screen: { flex: 1 },
+  gearWrap: { position: 'absolute', top: 0, right: 0, paddingTop: 6, paddingRight: 16 },
+  gear: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

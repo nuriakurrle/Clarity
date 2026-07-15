@@ -32,6 +32,7 @@ import {
   fetchLatestDigest,
   fetchLatestPatterns,
 } from '../services/api';
+import { notifyDigestReady } from '../services/notifications';
 import { colors } from '../theme/colors';
 import { moodColor, MoodLevel, valenceToMoodLevel } from '../theme/moodColors';
 import { serif } from '../theme/typography';
@@ -95,7 +96,10 @@ export default function HomeScreen({ onWrite }: Props) {
     reflectStarted.current = true;
     setReflecting(true);
     createReflection(1)
-      .then(setDigest)
+      .then((d) => {
+        setDigest(d);
+        notifyDigestReady(d);
+      })
       .catch(() => {
         // 404 = keine Eintraege in der Vorwoche. Kein Fehlerfall: der leere
         // Zustand unten sagt das bereits. Verbindungsfehler meldet der
@@ -126,6 +130,7 @@ export default function HomeScreen({ onWrite }: Props) {
     fetchLatestDigest()
       .then((d) => {
         setDigest(d);
+        notifyDigestReady(d);
         if (d.week_start !== lastWeekStartKey()) refreshDigest();
       })
       .catch((e) => {

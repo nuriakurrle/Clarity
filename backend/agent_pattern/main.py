@@ -153,7 +153,6 @@ def _filter_hallucinations(pattern_data: dict, theme_counts: dict, entries: List
         k: v for k, v in pattern_data["triggers"].items()
         if any(_occurs_in(k, e) for e in lowered)
     }
-    # Themen-Zaehler auf die verbliebenen Themen eindampfen.
     pattern_data["_kept_counts"] = {
         t: theme_counts[t] for t in pattern_data["recurring_themes"]
     }
@@ -181,7 +180,7 @@ def _matches_any(theme: str, prev_themes: List[str]) -> Optional[str]:
 
 
 async def _ollama_generate(prompt: str) -> str:
-    """Ruft Ollama auf - hoeheres Timeout + ein Retry bei kaltem Modell (#54)."""
+    """Ruft Ollama auf - hoeheres Timeout + ein Retry bei kaltem Modell."""
     payload = {
         "model": MODEL,
         "prompt": prompt,
@@ -208,8 +207,6 @@ async def startup():
 
 
 class EntriesInput(BaseModel):
-    # Optional: explizite Eintraege. Ohne Angabe werden die letzten `days` Tage
-    # aus der Datenbank analysiert.
     entries: Optional[List[str]] = None
     days: int = 7
 
@@ -318,7 +315,6 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
             logger.info("No grounded pattern after filtering, returning no_pattern")
             return {"status": "no_pattern", "entry_count": len(entries)}
 
-        # In der DB speichern (inkl. der reichhaltigen Felder)
         save_pattern(
             top_themes=pattern_data["recurring_themes"],
             mood_trend=pattern_data["mood_trend"],
