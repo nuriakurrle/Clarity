@@ -2,11 +2,13 @@
 Advanced prompt generation with context-aware selection and LLM integration.
 """
 
+import asyncio
 import os
 import sys
 import logging
 from contextlib import asynccontextmanager
 
+import httpx
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -41,6 +43,29 @@ MODEL = os.getenv("MODEL", "llama3.2:1b")
 PORT = int(os.getenv("PORT", 8000))
 
 
+async def _warm_up_ollama():
+    """Laedt das Modell beim Start in den RAM (fire-and-forget).
+
+    Ohne Warm-up zahlt die erste Bubble-Anfrage den Kaltstart des Modells
+    und laeuft auf langsamen CPUs in den Generierungs-Timeout.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=300) as client:
+            await client.post(
+                f"{OLLAMA_HOST}/api/generate",
+                json={
+                    "model": MODEL,
+                    "prompt": "Hallo",
+                    "stream": False,
+                    "keep_alive": "30m",
+                    "options": {"num_predict": 1},
+                },
+            )
+        logger.info("🔥 Ollama-Modell vorgewärmt")
+    except Exception as e:
+        logger.warning(f"⚠️  Warm-up übersprungen: {e!r}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown event handler."""
@@ -50,11 +75,12 @@ async def lifespan(app: FastAPI):
         logger.info("✅ Database initialized")
     except Exception as e:
         logger.warning(f"⚠️  Database initialization failed: {e}")
-    
+
     set_ollama_config(OLLAMA_HOST, MODEL)
     logger.info(f"🤖 Ollama configured: {OLLAMA_HOST}, Model: {MODEL}")
     logger.info(f"🚀 Prompt Agent starting on port {PORT}")
-    
+    asyncio.create_task(_warm_up_ollama())
+
     yield
     
     # Shutdown
