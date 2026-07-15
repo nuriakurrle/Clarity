@@ -248,8 +248,9 @@ async def detect_patterns(input: EntriesInput = EntriesInput()):
             )
             if tones:
                 sentiment_hint = (
-                    "\nFor extra context, the sentiment agent detected these emotions "
-                    f"across the same period: {tones}. Use them only to spot triggers.\n"
+                    "\nAls Zusatzkontext hat der Sentiment-Agent im selben Zeitraum "
+                    f"diese Emotionen erkannt: {tones}. Nutze sie nur, um Ausloeser zu "
+                    "erkennen.\n"
                 )
 
     if len(entries) < MIN_ENTRIES:
